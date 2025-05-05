@@ -2,7 +2,7 @@
 name = "svelte-cloudflare"
 compatibility_date = "2023-06-28"
 
-# KV Namespace for authentication state
-[[kv_namespaces]]
-binding = "AUTH_STORAGE"
-id = "c4d91f82c1abeb4d99dcf6b044c44f29"  
+kv_namespaces = [
+  { binding = "AUTH_STORAGE", id = "c4d91f82c1abeb4d99dcf6b044c44f29" }
+]
+
