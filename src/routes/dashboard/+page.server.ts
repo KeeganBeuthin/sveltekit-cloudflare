@@ -1,4 +1,5 @@
 import { kindeAuthClient, type SessionManager } from '@kinde-oss/kinde-auth-sveltekit';
+import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ request }) => {
@@ -6,13 +7,7 @@ export const load: PageServerLoad = async ({ request }) => {
     request as unknown as SessionManager
   );
   
-  let user = null;
-  if (isAuthenticated) {
-    user = await kindeAuthClient.getUser(request as unknown as SessionManager);
+  if (!isAuthenticated) {
+    throw redirect(302, '/api/auth/login');
   }
-  
-  return {
-    isAuthenticated,
-    user
-  };
 }; 

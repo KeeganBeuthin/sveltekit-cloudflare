@@ -1,7 +1,7 @@
 import { kindeAuthClient, type SessionManager } from '@kinde-oss/kinde-auth-sveltekit';
-import type { PageServerLoad } from './$types';
+import type { LayoutServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ request }) => {
+export const load: LayoutServerLoad = async ({ request }) => {
   const isAuthenticated = await kindeAuthClient.isAuthenticated(
     request as unknown as SessionManager
   );

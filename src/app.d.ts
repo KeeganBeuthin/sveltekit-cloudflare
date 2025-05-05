@@ -4,12 +4,12 @@ declare global {
 	namespace App {
 		// interface Error {}
 		interface Locals {
-			getUser: () => Promise<User | null>;
+			getUser: () => Promise<any>;
 			isAuthenticated: () => Promise<boolean>;
 			getBooleanFlag: (flagName: string, defaultValue?: boolean) => Promise<boolean>;
 			getNumberFlag: (flagName: string, defaultValue?: number) => Promise<number>;
 			getStringFlag: (flagName: string, defaultValue?: string) => Promise<string>;
-			getOrganization: () => Promise<Organization | null>;
+			getOrganization: () => Promise<any>;
 		}
 		// interface PageData {}
 		// interface PageState {}

@@ -1,11 +1,11 @@
 <script>
-	import { kindeClient } from '@kinde-oss/kinde-auth-sveltekit/client';
+	// Remove the client import - we don't need it for links
 </script>
 
 <div class="login-page">
 	<h1>Login to your account</h1>
-	<button on:click={() => kindeClient.login()}>Sign in</button>
-	<button on:click={() => kindeClient.register()}>Sign up</button>
+	<a href="/api/auth/login" class="button">Sign in</a>
+	<a href="/api/auth/register" class="button">Sign up</a>
 </div>
 
 <style>
@@ -18,17 +18,19 @@
 		gap: 1rem;
 	}
 	
-	button {
+	.button {
 		padding: 0.5rem 1rem;
 		background-color: #4f46e5;
 		color: white;
+		text-decoration: none;
 		border: none;
 		border-radius: 0.25rem;
 		cursor: pointer;
 		font-size: 1rem;
+		display: inline-block;
 	}
 	
-	button:hover {
+	.button:hover {
 		background-color: #4338ca;
 	}
 </style> 
