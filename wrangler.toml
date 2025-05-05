@@ -1,5 +1,6 @@
 name = "svelte-cloudflare"
 compatibility_date = "2023-06-28"
+pages_build_output_dir = "./svelte-kit"
 
 kv_namespaces = [
   { binding = "AUTH_STORAGE", id = "c4d91f82c1abeb4d99dcf6b044c44f29" }
