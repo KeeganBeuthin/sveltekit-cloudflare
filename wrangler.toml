@@ -7,3 +7,12 @@ kv_namespaces = [
   { binding = "AUTH_STORAGE", id = "09d660bda1a64539a745578e20a69091" }
 ]
 
+[vars]
+KINDE_ISSUER_URL = "https://burntjam2.kinde.com"
+KINDE_CLIENT_ID = "53add5e70e57400eb752ddb02bc07fb6"
+KINDE_CLIENT_SECRET = "W0PV642CRqIptpSAvtZB6euWf2tgxQhKYJUFzYZKo4Z8oGm8wW" 
+KINDE_REDIRECT_URL = "https://sveltekit-cloudflare.pages.dev/api/auth/kinde_callback"
+KINDE_POST_LOGOUT_REDIRECT_URL = "https://sveltekit-cloudflare.pages.dev"
+KINDE_POST_LOGIN_REDIRECT_URL = "https://sveltekit-cloudflare.pages.dev/dashboard"
+KINDE_AUTH_WITH_PKCE = "true"
+
