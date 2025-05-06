@@ -172,24 +172,41 @@ async function handleCallback(event: RequestEvent, storage: any) {
   try {
     const tokenResponse = await fetchTokens(code, codeVerifier);
     
+    console.log('Token response type:', typeof tokenResponse);
+    
     // Store tokens in KV storage
-    await storage.setState('tokens', {
-      access_token: tokenResponse.access_token,
-      refresh_token: tokenResponse.refresh_token,
-      id_token: tokenResponse.id_token,
-      expires_in: tokenResponse.expires_in,
-      timestamp: Date.now()
-    });
+    try {
+      await storage.setState('tokens', {
+        access_token: tokenResponse.access_token,
+        refresh_token: tokenResponse.refresh_token || null,
+        id_token: tokenResponse.id_token || null,
+        expires_in: tokenResponse.expires_in || 3600,
+        timestamp: Date.now()
+      });
+      
+      console.log('Tokens stored successfully');
+    } catch (storageError) {
+      console.error('Failed to store tokens:', 
+                  storageError instanceof Error ? storageError.message : 'Unknown error');
+      
+      // Continue anyway - we still want to redirect the user
+    }
     
     // Redirect to post-login URL
     return redirect(302, redirectUrl);
   } catch (error) {
-    console.error('Token exchange error:', error);
+    console.error('Token exchange error:', 
+                error instanceof Error ? error.message : 'Unknown error');
     
-    await storage.setState('token_error', {
-      time: new Date().toISOString(),
-      error: error instanceof Error ? error.message : String(error)
-    });
+    // Store error for debugging
+    try {
+      await storage.setState('token_error', {
+        time: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error)
+      });
+    } catch (storageError) {
+      console.error('Failed to store error:', storageError);
+    }
     
     return json({ error: 'Token exchange failed' }, { status: 500 });
   }
@@ -228,25 +245,51 @@ async function fetchTokens(code: string, codeVerifier?: string) {
     hasClientSecret: !USE_PKCE || (codeVerifier === 'true' || !codeVerifier)
   });
   
-  const response = await fetch(tokenUrl.toString(), {
-    method: 'POST',
-    headers,
-    body: params
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Token exchange error details:', {
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-      body: errorText
+  try {
+    const response = await fetch(tokenUrl.toString(), {
+      method: 'POST',
+      headers,
+      body: params
     });
     
-    throw new Error(`Token exchange failed: ${response.status} ${errorText}`);
+    const responseText = await response.text();
+    console.log('Token response status:', response.status);
+    
+    // Try to parse the response as JSON
+    let responseData;
+    try {
+      responseData = JSON.parse(responseText);
+      console.log('Token response parsed successfully');
+    } catch (parseError) {
+      console.error('Failed to parse token response as JSON:', responseText);
+      throw new Error(`Invalid JSON response: ${responseText}`);
+    }
+    
+    // Check for errors in the response
+    if (!response.ok) {
+      console.error('Token exchange error details:', {
+        status: response.status,
+        error: responseData.error,
+        description: responseData.error_description
+      });
+      
+      throw new Error(`Token exchange failed: ${response.status} - ${responseData.error}: ${responseData.error_description}`);
+    }
+    
+    // Check if the response has the expected tokens
+    if (!responseData.access_token) {
+      console.error('Token response missing access_token:', responseData);
+      throw new Error('Token response missing required fields');
+    }
+    
+    // Log success
+    console.log('Token exchange successful');
+    
+    return responseData;
+  } catch (error) {
+    console.error('Token exchange error:', error instanceof Error ? error.message : 'Unknown error');
+    throw error;
   }
-  
-  return response.json();
 }
 
 // Handle logout
@@ -255,4 +298,16 @@ function handleLogout(event: RequestEvent) {
   logoutUrl.searchParams.append('redirect', POST_LOGOUT_REDIRECT_URL);
   
   return redirect(302, logoutUrl.toString());
+}
+
+// Helper function to safely stringify errors
+function safeStringify(obj: any): string {
+  try {
+    if (obj instanceof Error) {
+      return obj.message + (obj.stack ? `\n${obj.stack}` : '');
+    }
+    return JSON.stringify(obj, null, 2);
+  } catch (e) {
+    return `[Unstringifiable object: ${typeof obj}]`;
+  }
 } 
