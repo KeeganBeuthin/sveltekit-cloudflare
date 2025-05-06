@@ -56,6 +56,20 @@ function generateRandomString(length = 32) {
   return text;
 }
 
+// Add this at the top of your file
+async function sha256(plain: string): Promise<ArrayBuffer> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(plain);
+  return await crypto.subtle.digest('SHA-256', data);
+}
+
+function base64URLEncode(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
 // Handle login or registration
 async function handleLogin(event: RequestEvent, storage: any, isRegister: boolean) {
   // Generate state parameter
@@ -68,9 +82,9 @@ async function handleLogin(event: RequestEvent, storage: any, isRegister: boolea
   if (USE_PKCE) {
     codeVerifier = generateRandomString(64);
     
-    // In a real implementation, you'd need to create a proper code challenge
-    // This is a simplified version - you'd need SHA-256 hashing for proper PKCE
-    codeChallenge = codeVerifier; // Simplified! In reality, this should be base64url(sha256(codeVerifier))
+    // Create proper code challenge with SHA-256
+    const challengeBuffer = await sha256(codeVerifier);
+    codeChallenge = base64URLEncode(challengeBuffer);
   }
   
   // Store state (and code verifier if using PKCE)
@@ -184,33 +198,52 @@ async function handleCallback(event: RequestEvent, storage: any) {
 // Exchange authorization code for tokens
 async function fetchTokens(code: string, codeVerifier?: string) {
   const tokenUrl = new URL('/oauth2/token', ISSUER_URL);
-  
   const params = new URLSearchParams();
-  params.append('grant_type', 'authorization_code');
-  params.append('client_id', CLIENT_ID);
-  params.append('redirect_uri', REDIRECT_URL);
-  params.append('code', code);
   
-  // Add code verifier for PKCE if present
-  if (codeVerifier) {
+  params.append('grant_type', 'authorization_code');
+  params.append('code', code);
+  params.append('redirect_uri', REDIRECT_URL);
+  params.append('client_id', CLIENT_ID);
+  
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Accept': 'application/json'
+  };
+  
+  // Check if we're using PKCE
+  if (USE_PKCE && codeVerifier && codeVerifier !== 'true') {
+    console.log('Using PKCE flow with code verifier');
     params.append('code_verifier', codeVerifier);
+    // Do not include client_secret for PKCE flow
   } else {
-    // Add client secret for authorization code flow
-    params.append('client_secret', process.env.KINDE_CLIENT_SECRET || '');
+    console.log('Using authorization code flow with client secret');
+    const clientSecret = process.env.KINDE_CLIENT_SECRET || 'W0PV642CRqIptpSAvtZB6euWf2tgxQhKYJUFzYZKo4Z8oGm8wW';
+    params.append('client_secret', clientSecret);
   }
+  
+  // Log the request details (without sensitive info)
+  console.log('Token exchange request:', {
+    url: tokenUrl.toString(),
+    isPKCE: USE_PKCE && codeVerifier && codeVerifier !== 'true',
+    hasClientSecret: !USE_PKCE || (codeVerifier === 'true' || !codeVerifier)
+  });
   
   const response = await fetch(tokenUrl.toString(), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Accept': 'application/json'
-    },
+    headers,
     body: params
   });
   
   if (!response.ok) {
-    const errorData = await response.text();
-    throw new Error(`Token exchange failed: ${response.status} ${errorData}`);
+    const errorText = await response.text();
+    console.error('Token exchange error details:', {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: errorText
+    });
+    
+    throw new Error(`Token exchange failed: ${response.status} ${errorText}`);
   }
   
   return response.json();
