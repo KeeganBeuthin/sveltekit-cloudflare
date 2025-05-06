@@ -1,53 +1,106 @@
 <script>
-  import { page } from '$app/stores';
+  import { onMount } from 'svelte';
+  
+  export let data; // This will receive data from +page.server.ts
+  
+  let userProfile = null;
+  let loading = true;
+  let error = null;
+  
+  onMount(async () => {
+    try {
+      // Fetch user profile
+      const response = await fetch('/api/user-profile');
+      const result = await response.json();
+      
+      if (result.authenticated) {
+        userProfile = result.profile;
+      } else {
+        error = 'Not authenticated';
+      }
+    } catch (err) {
+      error = err.message;
+    } finally {
+      loading = false;
+    }
+  });
 </script>
 
-<div class="dashboard">
+<main>
   <h1>Dashboard</h1>
   
-  {#if $page.data.user}
-    <div class="user-info">
-      <h2>User Information</h2>
-      <p>ID: {$page.data.user.id}</p>
-      <p>Email: {$page.data.user.email}</p>
-      <p>Name: {$page.data.user.given_name} {$page.data.user.family_name}</p>
+  {#if loading}
+    <p>Loading...</p>
+  {:else if error}
+    <div class="error">
+      <p>Error: {error}</p>
+      <a href="/api/auth/login">Login</a>
+    </div>
+  {:else if userProfile}
+    <div class="profile">
+      <h2>Welcome, {userProfile.given_name || userProfile.name || 'User'}!</h2>
+      
+      <div class="user-info">
+        <h3>Your Profile</h3>
+        <pre>{JSON.stringify(userProfile, null, 2)}</pre>
+      </div>
+      
+      <a href="/api/auth/logout" class="logout">Logout</a>
     </div>
   {:else}
-    <p>Loading user information...</p>
+    <div class="not-authenticated">
+      <p>You need to be logged in to view this page.</p>
+      <a href="/api/auth/login">Login</a>
+    </div>
   {/if}
-
-  <a href="/api/auth/login">Login</a>
-<a href="/api/auth/register">Register</a>
-<a href="/api/auth/logout">Logout</a>
-
-  
-  <div class="logout">
-    <a href="/api/auth/logout">Sign out</a>
-  </div>
-</div>
+</main>
 
 <style>
-  .dashboard {
+  main {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+  
+  .error {
+    background-color: #ffebee;
+    color: #c62828;
     padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
   }
   
   .user-info {
-    background-color: #f3f4f6;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin: 1rem 0;
+    margin-top: 2rem;
   }
   
-  .logout a {
+  pre {
+    background-color: #f5f5f5;
+    padding: 1rem;
+    border-radius: 4px;
+    overflow: auto;
+    max-height: 400px;
+  }
+  
+  a {
+    display: inline-block;
+    margin-top: 1rem;
     padding: 0.5rem 1rem;
-    background-color: #ef4444;
+    background-color: #4f46e5;
     color: white;
     text-decoration: none;
-    border-radius: 0.25rem;
-    display: inline-block;
+    border-radius: 4px;
   }
   
-  .logout a:hover {
+  a:hover {
+    background-color: #4338ca;
+  }
+  
+  .logout {
+    background-color: #ef4444;
+  }
+  
+  .logout:hover {
     background-color: #dc2626;
   }
 </style> 

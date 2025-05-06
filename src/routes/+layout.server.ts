@@ -1,18 +1,28 @@
 import { kindeAuthClient, type SessionManager } from '@kinde-oss/kinde-auth-sveltekit';
 import type { LayoutServerLoad } from './$types';
+import { createKindeStorage } from '$lib/kindeCloudflareStorage';
 
-export const load: LayoutServerLoad = async ({ request }) => {
-  const isAuthenticated = await kindeAuthClient.isAuthenticated(
-    request as unknown as SessionManager
-  );
+export const load: LayoutServerLoad = async (event) => {
+  const storage = createKindeStorage(event);
   
-  let user = null;
-  if (isAuthenticated) {
-    user = await kindeAuthClient.getUser(request as unknown as SessionManager);
+  if (!storage) {
+    return {
+      authenticated: false
+    };
   }
   
-  return {
-    isAuthenticated,
-    user
-  };
+  try {
+    // Check if we have tokens
+    const tokens = await storage.getState('tokens');
+    const isAuthenticated = !!tokens?.access_token;
+    
+    return {
+      authenticated: isAuthenticated
+    };
+  } catch (error) {
+    console.error('Error checking authentication:', error);
+    return {
+      authenticated: false
+    };
+  }
 }; 

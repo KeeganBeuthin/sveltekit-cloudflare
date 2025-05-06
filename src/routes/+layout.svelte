@@ -1,66 +1,75 @@
 <script>
   import { page } from '$app/stores';
+  export let data;
 </script>
 
-<nav>
-  <div class="nav-container">
-    <a href="/" class="home-link">Home</a>
-    <div class="auth-links">
-      {#if $page.data.isAuthenticated}
-        <span>Welcome, {$page.data.user?.given_name || $page.data.user?.email || 'User'}</span>
+<div class="app">
+  <header>
+    <nav>
+      <a href="/">Home</a>
+      
+      {#if data.authenticated}
         <a href="/dashboard">Dashboard</a>
-        <a href="/api/auth/logout">Sign out</a>
+        <a href="/api/auth/logout" class="logout">Logout</a>
       {:else}
-        <a href="/api/auth/login">Sign in</a>
-        <a href="/api/auth/register">Sign up</a>
+        <a href="/api/auth/login">Login</a>
       {/if}
-    </div>
-  </div>
-</nav>
-
-<main>
-  <slot />
-</main>
+    </nav>
+  </header>
+  
+  <main>
+    <slot />
+  </main>
+  
+  <footer>
+    <p>SvelteKit with Kinde Authentication</p>
+  </footer>
+</div>
 
 <style>
-  nav {
-    background-color: #f9fafb;
-    padding: 1rem;
-    border-bottom: 1px solid #e5e7eb;
+  .app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
   }
   
-  .nav-container {
+  header {
+    background-color: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 1rem;
+  }
+  
+  nav {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    gap: 1rem;
     max-width: 1200px;
     margin: 0 auto;
   }
   
-  .home-link {
-    font-weight: bold;
-    text-decoration: none;
-    color: #111827;
-  }
-  
-  .auth-links {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-  }
-  
   a {
-    text-decoration: none;
     color: #4f46e5;
+    text-decoration: none;
+    font-weight: 500;
   }
   
   a:hover {
     text-decoration: underline;
   }
   
+  .logout {
+    margin-left: auto;
+    color: #ef4444;
+  }
+  
   main {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 2rem 1rem;
+    flex: 1;
+  }
+  
+  footer {
+    background-color: #f9fafb;
+    border-top: 1px solid #e5e7eb;
+    padding: 1rem;
+    text-align: center;
+    color: #6b7280;
   }
 </style> 
