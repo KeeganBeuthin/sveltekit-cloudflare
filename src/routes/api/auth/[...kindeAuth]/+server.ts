@@ -39,7 +39,7 @@ export async function GET(event: RequestEvent) {
       return handleCallback(event, storage);
     
     case 'logout':
-      return handleLogout(event);
+      return handleLogout(event, storage);
     
     default:
       return json({ error: 'Unknown auth endpoint' }, { status: 404 });
@@ -289,7 +289,12 @@ async function fetchTokens(code: string, codeVerifier?: string) {
 }
 
 // Handle logout
-function handleLogout(event: RequestEvent) {
+async function handleLogout(event: RequestEvent, storage: any) {
+  // Clear tokens from KV storage
+  await storage.deleteState('tokens');
+  console.log('Tokens deleted during logout');
+  
+  // Redirect to Kinde's logout endpoint
   const logoutUrl = new URL('/logout', ISSUER_URL);
   logoutUrl.searchParams.append('redirect', POST_LOGOUT_REDIRECT_URL);
   
