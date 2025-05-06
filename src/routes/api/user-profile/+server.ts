@@ -3,6 +3,9 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
 
+// Use the same ISSUER_URL constant as in the auth endpoint
+const ISSUER_URL = process.env.KINDE_ISSUER_URL || 'https://burntjam2.kinde.com';
+
 export async function GET(event: RequestEvent) {
   const storage = createKindeStorage(event);
   
@@ -26,6 +29,7 @@ export async function GET(event: RequestEvent) {
       profile: userProfile
     });
   } catch (error) {
+    console.error('User profile error:', error instanceof Error ? error.message : String(error));
     return json({ 
       authenticated: false,
       error: error instanceof Error ? error.message : String(error)
@@ -34,13 +38,18 @@ export async function GET(event: RequestEvent) {
 }
 
 async function fetchUserProfile(accessToken: string) {
-  const response = await fetch(`${process.env.KINDE_ISSUER_URL}/oauth2/user_profile`, {
+  const userProfileUrl = `${ISSUER_URL}/oauth2/user_profile`;
+  console.log(`Fetching user profile from: ${userProfileUrl}`);
+  
+  const response = await fetch(userProfileUrl, {
     headers: {
       'Authorization': `Bearer ${accessToken}`
     }
   });
   
   if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Failed to fetch user profile: ${response.status}`, errorText);
     throw new Error(`Failed to fetch user profile: ${response.status}`);
   }
   
