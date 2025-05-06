@@ -15,6 +15,11 @@
   {:else}
     <p>Loading user information...</p>
   {/if}
+
+  <a href="/api/auth/login">Login</a>
+<a href="/api/auth/register">Register</a>
+<a href="/api/auth/logout">Logout</a>
+
   
   <div class="logout">
     <a href="/api/auth/logout">Sign out</a>
