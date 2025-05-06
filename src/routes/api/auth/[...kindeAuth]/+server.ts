@@ -168,45 +168,41 @@ async function handleCallback(event: RequestEvent, storage: any) {
   await storage.deleteState(state);
   await storage.deleteState(`redirect:${state}`);
   
-  // Exchange code for tokens
   try {
+    // Exchange code for tokens
     const tokenResponse = await fetchTokens(code, codeVerifier);
     
-    console.log('Token response type:', typeof tokenResponse);
-    
     // Store tokens in KV storage
-    try {
-      await storage.setState('tokens', {
-        access_token: tokenResponse.access_token,
-        refresh_token: tokenResponse.refresh_token || null,
-        id_token: tokenResponse.id_token || null,
-        expires_in: tokenResponse.expires_in || 3600,
-        timestamp: Date.now()
-      });
-      
-      console.log('Tokens stored successfully');
-    } catch (storageError) {
-      console.error('Failed to store tokens:', 
-                  storageError instanceof Error ? storageError.message : 'Unknown error');
-      
-      // Continue anyway - we still want to redirect the user
-    }
+    await storage.setState('tokens', {
+      access_token: tokenResponse.access_token,
+      refresh_token: tokenResponse.refresh_token || null,
+      id_token: tokenResponse.id_token || null,
+      expires_in: tokenResponse.expires_in || 3600,
+      timestamp: Date.now()
+    });
     
-    // Redirect to post-login URL
-    return redirect(302, redirectUrl);
+    console.log('Tokens stored successfully');
+    
+    // Log the redirect URL for debugging
+    console.log('Redirecting to:', redirectUrl);
+    
+    // Create a redirect response with proper headers
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': redirectUrl,
+        'Cache-Control': 'no-store'
+      }
+    });
   } catch (error) {
-    console.error('Token exchange error:', 
-                error instanceof Error ? error.message : 'Unknown error');
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Token exchange error:', errorMessage);
     
     // Store error for debugging
-    try {
-      await storage.setState('token_error', {
-        time: new Date().toISOString(),
-        error: error instanceof Error ? error.message : String(error)
-      });
-    } catch (storageError) {
-      console.error('Failed to store error:', storageError);
-    }
+    await storage.setState('token_error', {
+      time: new Date().toISOString(),
+      error: safeStringify(error)
+    });
     
     return json({ error: 'Token exchange failed' }, { status: 500 });
   }
@@ -306,7 +302,8 @@ function safeStringify(obj: any): string {
     if (obj instanceof Error) {
       return obj.message + (obj.stack ? `\n${obj.stack}` : '');
     }
-    return JSON.stringify(obj, null, 2);
+    
+    return JSON.stringify(obj);
   } catch (e) {
     return `[Unstringifiable object: ${typeof obj}]`;
   }
