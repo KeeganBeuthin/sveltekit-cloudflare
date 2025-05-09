@@ -10,7 +10,7 @@ const REDIRECT_URL = KINDE_REDIRECT_URL;
 const POST_LOGIN_REDIRECT_URL = KINDE_POST_LOGIN_REDIRECT_URL;
 const POST_LOGOUT_REDIRECT_URL = KINDE_POST_LOGOUT_REDIRECT_URL;
 const SCOPE = 'openid profile email offline'
-const USE_PKCE = KINDE_AUTH_WITH_PKCE;
+const USE_PKCE = KINDE_AUTH_WITH_PKCE === 'true';
 
 export async function GET(event: RequestEvent) {
   const storage = createKindeStorage(event);
@@ -75,7 +75,7 @@ function base64URLEncode(buffer: ArrayBuffer): string {
 async function handleLogin(event: RequestEvent, storage: any, isRegister: boolean) {
   // Generate state parameter
   const state = generateRandomString(24);
-  
+  console.log(KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_ISSUER_URL, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, SCOPE)
   // For PKCE, generate code challenge
   let codeVerifier: string | undefined;
   let codeChallenge: string | undefined;
@@ -224,22 +224,22 @@ async function fetchTokens(code: string, codeVerifier?: string) {
     'Accept': 'application/json'
   };
   
-  // Check if we're using PKCE
+  // The key fix: Always include client_secret with Kinde, even with PKCE
   if (USE_PKCE && codeVerifier && codeVerifier !== 'true') {
     console.log('Using PKCE flow with code verifier');
     params.append('code_verifier', codeVerifier);
-    // Do not include client_secret for PKCE flow
+    
+    // CRITICAL FIX: Kinde requires client_secret even with PKCE flow for server-side apps
+    params.append('client_secret', SECRET);
   } else {
-    console.log('Using authorization code flow with client secret');
-    const clientSecret = SECRET;
-    params.append('client_secret', clientSecret);
+    console.log('Using standard authorization code flow with client secret');
+    params.append('client_secret', SECRET);
   }
   
-  // Log the request details (without sensitive info)
   console.log('Token exchange request:', {
     url: tokenUrl.toString(),
     isPKCE: USE_PKCE && codeVerifier && codeVerifier !== 'true',
-    hasClientSecret: !USE_PKCE || (codeVerifier === 'true' || !codeVerifier)
+    hasClientSecret: true
   });
   
   try {
