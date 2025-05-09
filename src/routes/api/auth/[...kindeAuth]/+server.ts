@@ -2,14 +2,23 @@ import { json, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from "@sveltejs/kit";
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
 
-// Get environment variables
-const ISSUER_URL = process.env.KINDE_ISSUER_URL || 'https://burntjam2.kinde.com';
-const CLIENT_ID = process.env.KINDE_CLIENT_ID || '53add5e70e57400eb752ddb02bc07fb6';
-const REDIRECT_URL = process.env.KINDE_REDIRECT_URL || 'https://sveltekit-cloudflare.pages.dev/api/auth/kinde_callback';
-const POST_LOGIN_REDIRECT_URL = process.env.KINDE_POST_LOGIN_REDIRECT_URL || 'https://sveltekit-cloudflare.pages.dev/dashboard';
-const POST_LOGOUT_REDIRECT_URL = process.env.KINDE_POST_LOGOUT_REDIRECT_URL || 'https://sveltekit-cloudflare.pages.dev';
-const SCOPE = process.env.KINDE_SCOPE || 'openid profile email offline';
-const USE_PKCE = process.env.KINDE_AUTH_WITH_PKCE === 'true';
+// Try to import from SvelteKit (for local development)
+let ISSUER_URL, CLIENT_ID, CLIENT_SECRET, REDIRECT_URL, POST_LOGIN_REDIRECT_URL, POST_LOGOUT_REDIRECT_URL, USE_PKCE;
+
+try {
+  // Import for local development
+  const env = await import('$env/static/private');
+  ISSUER_URL = env.KINDE_ISSUER_URL;
+  CLIENT_ID = env.KINDE_CLIENT_ID;
+  CLIENT_SECRET = env.KINDE_CLIENT_SECRET;
+  REDIRECT_URL = env.KINDE_REDIRECT_URL;
+  POST_LOGIN_REDIRECT_URL = env.KINDE_POST_LOGIN_REDIRECT_URL;
+  POST_LOGOUT_REDIRECT_URL = env.KINDE_POST_LOGOUT_REDIRECT_URL;
+  USE_PKCE = env.KINDE_AUTH_WITH_PKCE === 'true';
+} catch (error) {
+  // Will use platform.env in Cloudflare instead
+  console.log('Using fallback environment variables access');
+}
 
 export async function GET(event: RequestEvent) {
   const storage = createKindeStorage(event);
@@ -25,6 +34,17 @@ export async function GET(event: RequestEvent) {
   if (!storage) {
     console.error('KV storage not available');
     return json({ error: 'KV storage not available' }, { status: 500 });
+  }
+  
+  // Check if we need to access environment variables from Cloudflare
+  if (!ISSUER_URL && event.platform?.env) {
+    ISSUER_URL = event.platform.env.KINDE_ISSUER_URL;
+    CLIENT_ID = event.platform.env.KINDE_CLIENT_ID;
+    CLIENT_SECRET = event.platform.env.KINDE_CLIENT_SECRET;
+    REDIRECT_URL = event.platform.env.KINDE_REDIRECT_URL;
+    POST_LOGIN_REDIRECT_URL = event.platform.env.KINDE_POST_LOGIN_REDIRECT_URL || '/dashboard';
+    POST_LOGOUT_REDIRECT_URL = event.platform.env.KINDE_POST_LOGOUT_REDIRECT_URL || '/';
+    USE_PKCE = event.platform.env.KINDE_AUTH_WITH_PKCE === 'true';
   }
   
   // Handle various auth endpoints
