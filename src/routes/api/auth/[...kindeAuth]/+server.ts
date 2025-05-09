@@ -2,7 +2,7 @@ import { json, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from "@sveltejs/kit";
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
 import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_SCOPE, KINDE_AUTH_WITH_PKCE } from '$env/static/private';
-
+// Get environment variables
 const ISSUER_URL = KINDE_ISSUER_URL;
 const CLIENT_ID = KINDE_CLIENT_ID;
 const REDIRECT_URL = KINDE_REDIRECT_URL;
