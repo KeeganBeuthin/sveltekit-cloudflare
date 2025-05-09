@@ -3,6 +3,7 @@ import type { RequestEvent } from "@sveltejs/kit";
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
 import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_SCOPE, KINDE_AUTH_WITH_PKCE } from '$env/static/private';
 // Get environment variables
+const SECRET = KINDE_CLIENT_SECRET;
 const ISSUER_URL = KINDE_ISSUER_URL;
 const CLIENT_ID = KINDE_CLIENT_ID;
 const REDIRECT_URL = KINDE_REDIRECT_URL;
@@ -230,7 +231,7 @@ async function fetchTokens(code: string, codeVerifier?: string) {
     // Do not include client_secret for PKCE flow
   } else {
     console.log('Using authorization code flow with client secret');
-    const clientSecret = process.env.KINDE_CLIENT_SECRET || 'W0PV642CRqIptpSAvtZB6euWf2tgxQhKYJUFzYZKo4Z8oGm8wW';
+    const clientSecret = SECRET;
     params.append('client_secret', clientSecret);
   }
   
