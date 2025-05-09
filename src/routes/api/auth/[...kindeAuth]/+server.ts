@@ -1,7 +1,7 @@
 import { json, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from "@sveltejs/kit";
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
-import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_SCOPE, KINDE_AUTH_WITH_PKCE } from '$env/static/private';
+import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE } from '$env/static/private';
 // Get environment variables
 const SECRET = KINDE_CLIENT_SECRET;
 const ISSUER_URL = KINDE_ISSUER_URL;
@@ -9,8 +9,8 @@ const CLIENT_ID = KINDE_CLIENT_ID;
 const REDIRECT_URL = KINDE_REDIRECT_URL;
 const POST_LOGIN_REDIRECT_URL = KINDE_POST_LOGIN_REDIRECT_URL;
 const POST_LOGOUT_REDIRECT_URL = KINDE_POST_LOGOUT_REDIRECT_URL;
-const SCOPE = KINDE_SCOPE;
-const USE_PKCE = KINDE_AUTH_WITH_PKCE === 'true';
+const SCOPE = 'openid profile email offline'
+const USE_PKCE = KINDE_AUTH_WITH_PKCE;
 
 export async function GET(event: RequestEvent) {
   const storage = createKindeStorage(event);
