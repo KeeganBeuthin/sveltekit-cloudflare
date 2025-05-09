@@ -3,7 +3,7 @@ import type { RequestEvent } from "@sveltejs/kit";
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
 
 // Try to import from SvelteKit (for local development)
-let ISSUER_URL, CLIENT_ID, CLIENT_SECRET, REDIRECT_URL, POST_LOGIN_REDIRECT_URL, POST_LOGOUT_REDIRECT_URL, USE_PKCE;
+let ISSUER_URL, CLIENT_ID, CLIENT_SECRET, REDIRECT_URL, POST_LOGIN_REDIRECT_URL, POST_LOGOUT_REDIRECT_URL, USE_PKCE, SCOPE;
 
 try {
   // Import for local development
@@ -15,6 +15,7 @@ try {
   POST_LOGIN_REDIRECT_URL = env.KINDE_POST_LOGIN_REDIRECT_URL;
   POST_LOGOUT_REDIRECT_URL = env.KINDE_POST_LOGOUT_REDIRECT_URL;
   USE_PKCE = env.KINDE_AUTH_WITH_PKCE === 'true';
+  SCOPE = env.KINDE_SCOPE;
 } catch (error) {
   // Will use platform.env in Cloudflare instead
   console.log('Using fallback environment variables access');
@@ -45,6 +46,7 @@ export async function GET(event: RequestEvent) {
     POST_LOGIN_REDIRECT_URL = event.platform.env.KINDE_POST_LOGIN_REDIRECT_URL || '/dashboard';
     POST_LOGOUT_REDIRECT_URL = event.platform.env.KINDE_POST_LOGOUT_REDIRECT_URL || '/';
     USE_PKCE = event.platform.env.KINDE_AUTH_WITH_PKCE === 'true';
+    SCOPE = event.platform.env.KINDE_SCOPE;
   }
   
   // Handle various auth endpoints

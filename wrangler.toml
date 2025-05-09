@@ -16,4 +16,4 @@ KINDE_POST_LOGOUT_REDIRECT_URL = "https://sveltekit-cloudflare.pages.dev"
 KINDE_POST_LOGIN_REDIRECT_URL = "https://sveltekit-cloudflare.pages.dev/dashboard"
 KINDE_AUTH_WITH_PKCE = "true"
 KINDE_DEBUG = "true"
-KINDE_SCOPE = 'openid profile email offline'
+KINDE_SCOPE = "openid profile email offline"
