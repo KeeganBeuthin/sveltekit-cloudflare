@@ -1,16 +1,15 @@
 import { json, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from "@sveltejs/kit";
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
-import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE } from '$env/static/private';
+
 // Get environment variables
-const SECRET = KINDE_CLIENT_SECRET;
-const ISSUER_URL = KINDE_ISSUER_URL;
-const CLIENT_ID = KINDE_CLIENT_ID;
-const REDIRECT_URL = KINDE_REDIRECT_URL;
-const POST_LOGIN_REDIRECT_URL = KINDE_POST_LOGIN_REDIRECT_URL;
-const POST_LOGOUT_REDIRECT_URL = KINDE_POST_LOGOUT_REDIRECT_URL;
-const SCOPE = 'openid profile email offline'
-const USE_PKCE = KINDE_AUTH_WITH_PKCE;
+const ISSUER_URL = process.env.KINDE_ISSUER_URL || 'https://burntjam2.kinde.com';
+const CLIENT_ID = process.env.KINDE_CLIENT_ID || '53add5e70e57400eb752ddb02bc07fb6';
+const REDIRECT_URL = process.env.KINDE_REDIRECT_URL || 'https://sveltekit-cloudflare.pages.dev/api/auth/kinde_callback';
+const POST_LOGIN_REDIRECT_URL = process.env.KINDE_POST_LOGIN_REDIRECT_URL || 'https://sveltekit-cloudflare.pages.dev/dashboard';
+const POST_LOGOUT_REDIRECT_URL = process.env.KINDE_POST_LOGOUT_REDIRECT_URL || 'https://sveltekit-cloudflare.pages.dev';
+const SCOPE = process.env.KINDE_SCOPE || 'openid profile email offline';
+const USE_PKCE = process.env.KINDE_AUTH_WITH_PKCE === 'true';
 
 export async function GET(event: RequestEvent) {
   const storage = createKindeStorage(event);
@@ -231,7 +230,7 @@ async function fetchTokens(code: string, codeVerifier?: string) {
     // Do not include client_secret for PKCE flow
   } else {
     console.log('Using authorization code flow with client secret');
-    const clientSecret = SECRET;
+    const clientSecret = process.env.KINDE_CLIENT_SECRET || 'W0PV642CRqIptpSAvtZB6euWf2tgxQhKYJUFzYZKo4Z8oGm8wW';
     params.append('client_secret', clientSecret);
   }
   
