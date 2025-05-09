@@ -1,25 +1,16 @@
 import { json, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from "@sveltejs/kit";
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
-
-// Try to import from SvelteKit (for local development)
-let ISSUER_URL, CLIENT_ID, CLIENT_SECRET, REDIRECT_URL, POST_LOGIN_REDIRECT_URL, POST_LOGOUT_REDIRECT_URL, USE_PKCE, SCOPE;
-
-try {
-  // Import for local development
-  const env = await import('$env/static/private');
-  ISSUER_URL = env.KINDE_ISSUER_URL;
-  CLIENT_ID = env.KINDE_CLIENT_ID;
-  CLIENT_SECRET = env.KINDE_CLIENT_SECRET;
-  REDIRECT_URL = env.KINDE_REDIRECT_URL;
-  POST_LOGIN_REDIRECT_URL = env.KINDE_POST_LOGIN_REDIRECT_URL;
-  POST_LOGOUT_REDIRECT_URL = env.KINDE_POST_LOGOUT_REDIRECT_URL;
-  USE_PKCE = env.KINDE_AUTH_WITH_PKCE === 'true';
-  SCOPE = env.KINDE_SCOPE;
-} catch (error) {
-  // Will use platform.env in Cloudflare instead
-  console.log('Using fallback environment variables access');
-}
+import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE } from '$env/static/private';
+// Get environment variables
+const SECRET = KINDE_CLIENT_SECRET;
+const ISSUER_URL = KINDE_ISSUER_URL;
+const CLIENT_ID = KINDE_CLIENT_ID;
+const REDIRECT_URL = KINDE_REDIRECT_URL;
+const POST_LOGIN_REDIRECT_URL = KINDE_POST_LOGIN_REDIRECT_URL;
+const POST_LOGOUT_REDIRECT_URL = KINDE_POST_LOGOUT_REDIRECT_URL;
+const SCOPE = 'openid profile email offline'
+const USE_PKCE = KINDE_AUTH_WITH_PKCE;
 
 export async function GET(event: RequestEvent) {
   const storage = createKindeStorage(event);
@@ -35,18 +26,6 @@ export async function GET(event: RequestEvent) {
   if (!storage) {
     console.error('KV storage not available');
     return json({ error: 'KV storage not available' }, { status: 500 });
-  }
-  
-  // Check if we need to access environment variables from Cloudflare
-  if (!ISSUER_URL && event.platform?.env) {
-    ISSUER_URL = event.platform.env.KINDE_ISSUER_URL;
-    CLIENT_ID = event.platform.env.KINDE_CLIENT_ID;
-    CLIENT_SECRET = event.platform.env.KINDE_CLIENT_SECRET;
-    REDIRECT_URL = event.platform.env.KINDE_REDIRECT_URL;
-    POST_LOGIN_REDIRECT_URL = event.platform.env.KINDE_POST_LOGIN_REDIRECT_URL || '/dashboard';
-    POST_LOGOUT_REDIRECT_URL = event.platform.env.KINDE_POST_LOGOUT_REDIRECT_URL || '/';
-    USE_PKCE = event.platform.env.KINDE_AUTH_WITH_PKCE === 'true';
-    SCOPE = event.platform.env.KINDE_SCOPE;
   }
   
   // Handle various auth endpoints
@@ -252,7 +231,7 @@ async function fetchTokens(code: string, codeVerifier?: string) {
     // Do not include client_secret for PKCE flow
   } else {
     console.log('Using authorization code flow with client secret');
-    const clientSecret = process.env.KINDE_CLIENT_SECRET || 'W0PV642CRqIptpSAvtZB6euWf2tgxQhKYJUFzYZKo4Z8oGm8wW';
+    const clientSecret = SECRET;
     params.append('client_secret', clientSecret);
   }
   
