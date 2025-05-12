@@ -9,8 +9,24 @@
   
   onMount(async () => {
     try {
-      // Fetch user profile
-      const response = await fetch('/api/user-profile');
+      if (!data.authenticated) {
+        error = data.error || 'Not authenticated';
+        loading = false;
+        return;
+      }
+      
+      // Fetch user profile with the access token
+      const response = await fetch('/api/user-profile', {
+        headers: {
+          'Authorization': `Bearer ${data.accessToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch user profile');
+      }
+      
       const result = await response.json();
       
       if (result.authenticated) {
