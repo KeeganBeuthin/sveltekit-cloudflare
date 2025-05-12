@@ -171,8 +171,11 @@ async function handleCallback(event: RequestEvent, storage: any) {
     // Exchange code for tokens
     const tokenResponse = await fetchTokens(code, codeVerifier);
     
-    // Store tokens in KV storage
-    await storage.setState('tokens', {
+    // Generate a unique session ID for this user
+    const sessionId = generateRandomString(32);
+    
+    // Store tokens in KV storage with user-specific session ID
+    await storage.setState(`session:${sessionId}:tokens`, {
       access_token: tokenResponse.access_token,
       refresh_token: tokenResponse.refresh_token || null,
       id_token: tokenResponse.id_token || null,
@@ -180,17 +183,38 @@ async function handleCallback(event: RequestEvent, storage: any) {
       timestamp: Date.now()
     });
     
-    console.log('Tokens stored successfully');
+    if (KINDE_DEBUG === 'true') {
+      console.log('Tokens stored successfully for session:', sessionId);
+      console.log('Redirecting to:', redirectUrl);
+    }
     
-    // Log the redirect URL for debugging
-    console.log('Redirecting to:', redirectUrl);
+    // Extract user ID from tokens if available
+    let userId = null;
+    if (tokenResponse.id_token) {
+      try {
+        // Parse the ID token to get user information
+        const idTokenParts = tokenResponse.id_token.split('.');
+        if (idTokenParts.length >= 2) {
+          const payload = JSON.parse(atob(idTokenParts[1]));
+          userId = payload.sub || null;
+        }
+      } catch (e) {
+        console.error('Failed to extract user ID from token:', e);
+      }
+    }
     
-    // Create a redirect response with proper headers
+    // If we have a user ID, create a mapping for easier lookups
+    if (userId) {
+      await storage.setState(`user:${userId}:session`, sessionId);
+    }
+    
+    // Create a redirect response with proper headers and set session cookie
     return new Response(null, {
       status: 302,
       headers: {
         'Location': redirectUrl,
-        'Cache-Control': 'no-store'
+        'Cache-Control': 'no-store',
+        'Set-Cookie': `kinde_session=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000` // 30 days
       }
     });
   } catch (error) {
@@ -222,7 +246,7 @@ async function fetchTokens(code: string, codeVerifier?: string) {
     'Accept': 'application/json'
   };
   
-  // The key fix: Always include client_secret with Kinde, even with PKCE
+  // The key fix: Always include client_secret with Kinde, even with PKCE flow
   if (USE_PKCE && codeVerifier && codeVerifier !== 'true') {
     console.log('Using PKCE flow with code verifier');
     params.append('code_verifier', codeVerifier);
@@ -283,15 +307,32 @@ async function fetchTokens(code: string, codeVerifier?: string) {
 
 // Handle logout
 async function handleLogout(event: RequestEvent, storage: any) {
-  // Clear tokens from KV storage
-  await storage.deleteState('tokens');
-  console.log('Tokens deleted during logout');
+  // Get session ID from cookie
+  const cookies = event.request.headers.get('cookie') || '';
+  const sessionMatch = cookies.match(/kinde_session=([^;]+)/);
+  const sessionId = sessionMatch ? sessionMatch[1] : null;
+  
+  if (sessionId) {
+    // Clear tokens for this specific session
+    await storage.deleteState(`session:${sessionId}:tokens`);
+    
+    if (KINDE_DEBUG === 'true') {
+      console.log(`Tokens deleted for session: ${sessionId}`);
+    }
+  }
   
   // Redirect to Kinde's logout endpoint
   const logoutUrl = new URL('/logout', ISSUER_URL);
   logoutUrl.searchParams.append('redirect', POST_LOGOUT_REDIRECT_URL);
   
-  return redirect(302, logoutUrl.toString());
+  // Create a response with a Set-Cookie header to clear the session cookie
+  return new Response(null, {
+    status: 302,
+    headers: {
+      'Location': logoutUrl.toString(),
+      'Set-Cookie': 'kinde_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' // Clear the cookie
+    }
+  });
 }
 
 // Helper function to safely stringify errors

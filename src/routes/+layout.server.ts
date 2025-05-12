@@ -1,4 +1,4 @@
-import { kindeAuthClient, type SessionManager } from '@kinde-oss/kinde-auth-sveltekit';
+import { kindeAuthClient } from '@kinde-oss/kinde-auth-sveltekit';
 import type { LayoutServerLoad } from './$types';
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
 import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL } from '$env/static/private';
@@ -7,16 +7,22 @@ export const load: LayoutServerLoad = async (event) => {
   const storage = createKindeStorage(event);
   
   if (!storage) {
-    return {
-      authenticated: false
-    };
+    return { authenticated: false };
   }
   
   try {
-    // Check if we have tokens
-    const tokens = await storage.getState('tokens');
+    // Get session ID from cookie
+    const cookies = event.request.headers.get('cookie') || '';
+    const sessionMatch = cookies.match(/kinde_session=([^;]+)/);
+    const sessionId = sessionMatch ? sessionMatch[1] : null;
     
-    // If no tokens exist, user is not authenticated
+    if (!sessionId) {
+      return { authenticated: false };
+    }
+    
+    // Retrieve tokens for this specific session
+    const tokens = await storage.getState(`session:${sessionId}:tokens`);
+    
     if (!tokens?.access_token) {
       return { authenticated: false };
     }
@@ -29,7 +35,7 @@ export const load: LayoutServerLoad = async (event) => {
     
     // If token is still valid (with 60-second buffer)
     if (tokenAge < tokenExpiresInMs - 60000) {
-      return { authenticated: true };
+      return { authenticated: true, sessionId };
     }
     
     // If token is expired but we have a refresh token, try to refresh
@@ -38,7 +44,7 @@ export const load: LayoutServerLoad = async (event) => {
         const refreshedTokens = await refreshTokens(tokens.refresh_token);
         
         // Store refreshed tokens
-        await storage.setState('tokens', {
+        await storage.setState(`session:${sessionId}:tokens`, {
           access_token: refreshedTokens.access_token,
           refresh_token: refreshedTokens.refresh_token || tokens.refresh_token,
           id_token: refreshedTokens.id_token || tokens.id_token,
@@ -46,7 +52,7 @@ export const load: LayoutServerLoad = async (event) => {
           timestamp: Date.now()
         });
         
-        return { authenticated: true };
+        return { authenticated: true, sessionId };
       } catch (refreshError) {
         console.error('Failed to refresh token:', refreshError);
         // Token refresh failed, user needs to re-authenticate
@@ -54,13 +60,10 @@ export const load: LayoutServerLoad = async (event) => {
       }
     }
     
-    // Token is expired and no refresh token is available
     return { authenticated: false };
   } catch (error) {
     console.error('Error checking authentication:', error);
-    return {
-      authenticated: false
-    };
+    return { authenticated: false };
   }
 };
 
