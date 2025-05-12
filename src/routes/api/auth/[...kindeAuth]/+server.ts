@@ -1,7 +1,7 @@
 import { json, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from "@sveltejs/kit";
 import { createKindeStorage } from '$lib/kindeCloudflareStorage';
-import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE } from '$env/static/private';
+import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, KINDE_DEBUG } from '$env/static/private';
 // Get environment variables
 const SECRET = KINDE_CLIENT_SECRET;
 const ISSUER_URL = KINDE_ISSUER_URL;
@@ -12,16 +12,20 @@ const POST_LOGOUT_REDIRECT_URL = KINDE_POST_LOGOUT_REDIRECT_URL;
 const SCOPE = 'openid profile email offline'
 const USE_PKCE = KINDE_AUTH_WITH_PKCE === 'true';
 
+
 export async function GET(event: RequestEvent) {
   const storage = createKindeStorage(event);
   const url = new URL(event.request.url);
   const path = url.pathname.split('/').pop() || '';
   
-  console.log(`Auth request: ${path}`, {
-    hasStorage: !!storage,
-    hasState: !!url.searchParams.get('state'),
-    hasCode: !!url.searchParams.get('code')
-  });
+  // Only log when debug is enabled
+  if (KINDE_DEBUG === 'true') {
+    console.log(`Auth request: ${path}`, {
+      hasStorage: !!storage,
+      hasState: !!url.searchParams.get('state'),
+      hasCode: !!url.searchParams.get('code')
+    });
+  }
   
   if (!storage) {
     console.error('KV storage not available');
@@ -47,14 +51,12 @@ export async function GET(event: RequestEvent) {
   }
 }
 
-// Generate crypto-secure random string for state
+// More secure implementation using crypto.getRandomValues()
 function generateRandomString(length = 32) {
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let text = '';
-  for (let i = 0; i < length; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, b => possible.charAt(b % possible.length)).join('');
 }
 
 // Add this at the top of your file
@@ -75,7 +77,6 @@ function base64URLEncode(buffer: ArrayBuffer): string {
 async function handleLogin(event: RequestEvent, storage: any, isRegister: boolean) {
   // Generate state parameter
   const state = generateRandomString(24);
-  console.log(KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_ISSUER_URL, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, SCOPE)
   // For PKCE, generate code challenge
   let codeVerifier: string | undefined;
   let codeChallenge: string | undefined;
@@ -119,9 +120,6 @@ async function handleLogin(event: RequestEvent, storage: any, isRegister: boolea
     authUrl.searchParams.append('code_challenge', codeChallenge);
     authUrl.searchParams.append('code_challenge_method', 'S256');
   }
-  
-  // Redirect to Kinde auth URL
-  console.log(`Redirecting to Kinde auth: ${authUrl.toString()}`);
   return redirect(302, authUrl.toString());
 }
 
@@ -235,12 +233,6 @@ async function fetchTokens(code: string, codeVerifier?: string) {
     console.log('Using standard authorization code flow with client secret');
     params.append('client_secret', SECRET);
   }
-  
-  console.log('Token exchange request:', {
-    url: tokenUrl.toString(),
-    isPKCE: USE_PKCE && codeVerifier && codeVerifier !== 'true',
-    hasClientSecret: true
-  });
   
   try {
     const response = await fetch(tokenUrl.toString(), {
