@@ -12,16 +12,16 @@ import {
   type LoginOptions
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
-import { 
-  KINDE_ISSUER_URL, 
-  KINDE_CLIENT_ID, 
-  KINDE_CLIENT_SECRET, 
-  KINDE_REDIRECT_URL, 
-  KINDE_POST_LOGIN_REDIRECT_URL, 
-  KINDE_POST_LOGOUT_REDIRECT_URL, 
-  KINDE_AUTH_WITH_PKCE, 
-  KINDE_DEBUG 
-} from '$env/static/private';
+import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, KINDE_DEBUG } from '$env/static/private';
+// Get environment variables
+const SECRET = KINDE_CLIENT_SECRET;
+const ISSUER_URL = KINDE_ISSUER_URL;
+const CLIENT_ID = KINDE_CLIENT_ID;
+const REDIRECT_URL = KINDE_REDIRECT_URL;
+const POST_LOGIN_REDIRECT_URL = KINDE_POST_LOGIN_REDIRECT_URL;
+const POST_LOGOUT_REDIRECT_URL = KINDE_POST_LOGOUT_REDIRECT_URL;
+const SCOPE = 'openid profile email offline'
+const USE_PKCE = KINDE_AUTH_WITH_PKCE === 'true';
 
 // Configure js-utils framework settings
 frameworkSettings.framework = 'sveltekit';
