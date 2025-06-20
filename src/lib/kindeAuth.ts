@@ -1,6 +1,7 @@
 import { 
     KvStorage, 
     setActiveStorage,
+    setInsecureStorage,
     getActiveStorage,
     type SessionManager
   } from '@kinde/js-utils';
@@ -20,9 +21,10 @@ import {
       return false;
     }
     
-    // Create KvStorage and set it as the active storage for js-utils
+    // Create KvStorage and set it as both secure and insecure storage for js-utils
     const storage = new KvStorage(AUTH_STORAGE, { defaultTtl: 3600 });
-    setActiveStorage(storage);
+    setActiveStorage(storage);      // For tokens (secure)
+    setInsecureStorage(storage);    // For state, nonce, code verifier (insecure/temporary)
     
     return true;
   }
