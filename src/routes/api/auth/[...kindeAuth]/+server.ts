@@ -11,6 +11,7 @@ import {
   type LoginOptions
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
+import { StorageKeys } from '@kinde/js-utils';
 import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, KINDE_DEBUG } from '$env/static/private';
 // Get environment variables
 const SECRET = KINDE_CLIENT_SECRET;
@@ -88,6 +89,7 @@ async function handleLogin(
   config: ReturnType<typeof getConfig>,
   options: { isRegister: boolean }
 ) {
+  // Storage is already initialized in the main GET handler
   const url = new URL(event.request.url);
   const orgCode = url.searchParams.get('org_code');
   
@@ -109,12 +111,20 @@ async function handleLogin(
   
   if (config.debug) {
     console.log('Generated auth URL via js-utils, state:', authResult.state);
+    
+    // Debug: Verify state was stored
+    const storage = getActiveStorage();
+    if (storage) {
+      const storedState = await storage.getSessionItem(StorageKeys.state);
+      console.log('State stored in KV:', storedState);
+    }
   }
   
   return redirect(302, authResult.url.toString());
 }
 
 async function handleCallback(event: RequestEvent, config: ReturnType<typeof getConfig>) {
+  // Storage is already initialized in the main GET handler
   const url = new URL(event.request.url);
   const error = url.searchParams.get('error');
   
@@ -122,8 +132,27 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
     return json({ error: `OAuth error: ${error}` }, { status: 400 });
   }
   
+  const incomingState = url.searchParams.get('state');
+  
   if (config.debug) {
-    console.log('Processing callback with state:', url.searchParams.get('state'));
+    console.log('Processing callback with state:', incomingState);
+    
+    // Debug: Check what's in storage before exchangeAuthCode
+    const storage = getActiveStorage();
+    if (storage) {
+      const storedState = await storage.getSessionItem(StorageKeys.state);
+      const storedCodeVerifier = await storage.getSessionItem(StorageKeys.codeVerifier);
+      const storedNonce = await storage.getSessionItem(StorageKeys.nonce);
+      console.log('=== CALLBACK DEBUG ===');
+      console.log('Incoming state:', incomingState);
+      console.log('Stored state:', storedState);
+      console.log('Stored code verifier:', storedCodeVerifier);
+      console.log('Stored nonce:', storedNonce);
+      console.log('State match:', incomingState === storedState);
+      console.log('=== END DEBUG ===');
+    } else {
+      console.log('ERROR: No storage found in callback - this is the problem!');
+    }
   }
   
   // Use js-utils exchangeAuthCode - it handles everything automatically
