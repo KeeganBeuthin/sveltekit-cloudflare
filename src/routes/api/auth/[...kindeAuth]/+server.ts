@@ -5,7 +5,6 @@ import {
   generateAuthUrl,
   exchangeAuthCode,
   frameworkSettings,
-  StorageKeys,
   getActiveStorage,
   IssuerRouteTypes,
   Scopes,
@@ -28,22 +27,34 @@ frameworkSettings.framework = 'sveltekit';
 frameworkSettings.frameworkVersion = '2.16.0';
 frameworkSettings.sdkVersion = '1.0.0';
 
-const config = {
-  issuerUrl: KINDE_ISSUER_URL,
-  clientId: KINDE_CLIENT_ID,
-  clientSecret: KINDE_CLIENT_SECRET,
-  redirectURL: KINDE_REDIRECT_URL,
-  postLoginRedirectURL: KINDE_POST_LOGIN_REDIRECT_URL,
-  postLogoutRedirectURL: KINDE_POST_LOGOUT_REDIRECT_URL,
-  scope: 'openid profile email offline',
-  usePkce: KINDE_AUTH_WITH_PKCE === 'true',
-  debug: KINDE_DEBUG === 'true'
-};
+function getConfig(event: RequestEvent) {
+  const platform = event.platform as any;
+  const env = platform?.env;
+  
+  return {
+    issuerUrl: env?.KINDE_ISSUER_URL,
+    clientId: env?.KINDE_CLIENT_ID,
+    clientSecret: env?.KINDE_CLIENT_SECRET,
+    redirectURL: env?.KINDE_REDIRECT_URL,
+    postLoginRedirectURL: env?.KINDE_POST_LOGIN_REDIRECT_URL,
+    postLogoutRedirectURL: env?.KINDE_POST_LOGOUT_REDIRECT_URL,
+    scope: 'openid profile email offline',
+    usePkce: env?.KINDE_AUTH_WITH_PKCE === 'true',
+    debug: env?.KINDE_DEBUG === 'true'
+  };
+}
 
 export async function GET(event: RequestEvent) {
   // Initialize Kinde auth with KV storage - this sets up the global active storage
   if (!initializeKindeAuth(event)) {
     return json({ error: 'KV storage not available' }, { status: 500 });
+  }
+  
+  const config = getConfig(event);
+  
+  // Validate required config
+  if (!config.issuerUrl || !config.clientId || !config.clientSecret || !config.redirectURL) {
+    return json({ error: 'Missing required Kinde configuration' }, { status: 500 });
   }
   
   const url = new URL(event.request.url);
@@ -56,13 +67,13 @@ export async function GET(event: RequestEvent) {
   try {
     switch (path) {
       case 'login':
-        return handleLogin(event, { isRegister: false });
+        return handleLogin(event, config, { isRegister: false });
       case 'register':
-        return handleLogin(event, { isRegister: true });
+        return handleLogin(event, config, { isRegister: true });
       case 'kinde_callback':
-        return handleCallback(event);
+        return handleCallback(event, config);
       case 'logout':
-        return handleLogout(event);
+        return handleLogout(event, config);
       default:
         return json({ error: 'Unknown auth endpoint' }, { status: 404 });
     }
@@ -74,38 +85,36 @@ export async function GET(event: RequestEvent) {
 
 async function handleLogin(
   event: RequestEvent, 
+  config: ReturnType<typeof getConfig>,
   options: { isRegister: boolean }
 ) {
   const url = new URL(event.request.url);
   const orgCode = url.searchParams.get('org_code');
-  const postLoginRedirect = url.searchParams.get('post_login_redirect_url') || config.postLoginRedirectURL;
   
-  // Store the post-login redirect in the URL state parameter, which js-utils will preserve through the OAuth flow
-  const customState = btoa(JSON.stringify({ 
-    postLoginRedirect,
-    timestamp: Date.now() 
-  }));
-  
-  // Build login options for js-utils generateAuthUrl
+  // Build login options for js-utils generateAuthUrl - let js-utils manage everything
   const loginOptions: LoginOptions = {
     clientId: config.clientId,
     redirectURL: config.redirectURL,
     scope: [Scopes.openid, Scopes.profile, Scopes.email, Scopes.offline_access],
-    state: customState,
+    // Let js-utils generate and manage state, nonce, and PKCE automatically
     ...(orgCode && { orgCode })
   };
   
-  // Generate auth URL using js-utils - this handles nonce and PKCE automatically
+  // Generate auth URL using js-utils - this handles everything automatically
   const authResult = await generateAuthUrl(
     config.issuerUrl,
     options.isRegister ? IssuerRouteTypes.register : IssuerRouteTypes.login,
     loginOptions
   );
   
+  if (config.debug) {
+    console.log('Generated auth URL via js-utils, state:', authResult.state);
+  }
+  
   return redirect(302, authResult.url.toString());
 }
 
-async function handleCallback(event: RequestEvent) {
+async function handleCallback(event: RequestEvent, config: ReturnType<typeof getConfig>) {
   const url = new URL(event.request.url);
   const error = url.searchParams.get('error');
   
@@ -113,22 +122,11 @@ async function handleCallback(event: RequestEvent) {
     return json({ error: `OAuth error: ${error}` }, { status: 400 });
   }
   
-  // Extract our custom state to get the post-login redirect
-  let postLoginRedirect = config.postLoginRedirectURL;
-  try {
-    const state = url.searchParams.get('state');
-    if (state) {
-      const stateData = JSON.parse(atob(state));
-      if (stateData.postLoginRedirect) {
-        postLoginRedirect = stateData.postLoginRedirect;
-      }
-    }
-  } catch (e) {
-    // If state parsing fails, use default redirect
-    console.warn('Failed to parse custom state, using default redirect');
+  if (config.debug) {
+    console.log('Processing callback with state:', url.searchParams.get('state'));
   }
   
-  // Use js-utils exchangeAuthCode - it handles state verification, token exchange, and storage automatically
+  // Use js-utils exchangeAuthCode - it handles everything automatically
   const tokenResult = await exchangeAuthCode({
     urlParams: url.searchParams,
     domain: config.issuerUrl,
@@ -137,6 +135,9 @@ async function handleCallback(event: RequestEvent) {
   });
   
   if (!tokenResult.success) {
+    if (config.debug) {
+      console.error('Token exchange failed:', tokenResult.error);
+    }
     return json({ error: tokenResult.error }, { status: 500 });
   }
   
@@ -144,20 +145,21 @@ async function handleCallback(event: RequestEvent) {
   const sessionId = generateRandomString(32);
   
   if (config.debug) {
-    console.log('Authentication successful, tokens stored in active storage via js-utils');
+    console.log('Authentication successful, tokens stored via js-utils');
   }
   
+  // Always redirect to the configured post-login URL
   return new Response(null, {
     status: 302,
     headers: {
-      'Location': postLoginRedirect,
+      'Location': config.postLoginRedirectURL || '/dashboard',
       'Cache-Control': 'no-store',
       'Set-Cookie': `kinde_session=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`
     }
   });
 }
 
-async function handleLogout(event: RequestEvent) {
+async function handleLogout(event: RequestEvent, config: ReturnType<typeof getConfig>) {
   // Get the active storage that was set up in the main handler
   const storage = getActiveStorage();
   if (!storage) {
@@ -168,12 +170,12 @@ async function handleLogout(event: RequestEvent) {
   await storage.destroySession();
   
   if (config.debug) {
-    console.log('Session destroyed via js-utils active storage');
+    console.log('Session destroyed via js-utils');
   }
   
   // Build logout URL
   const logoutUrl = new URL('/logout', config.issuerUrl);
-  logoutUrl.searchParams.append('redirect', config.postLogoutRedirectURL);
+  logoutUrl.searchParams.append('redirect', config.postLogoutRedirectURL || '/');
   
   return new Response(null, {
     status: 302,
