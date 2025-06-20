@@ -28,6 +28,7 @@
 		]
 	},
 	"dependencies": {
-		"@kinde-oss/kinde-auth-sveltekit": "^2.1.0"
+		"@kinde-oss/kinde-auth-sveltekit": "^2.1.0",
+		"@kinde/js-utils": "file:./js-utils"
 	}
 }
