@@ -11,49 +11,78 @@ import {
   import type { RequestEvent } from '@sveltejs/kit';
   
   /**
-   * Initialize Kinde authentication with KV storage for the current request
-   * This sets up the global active storage that all js-utils token helpers will use
+   * Cookie-based storage for temporary OAuth data that requires immediate consistency
+   * Used for: state, nonce, codeVerifier (short-lived, consistency-critical)
+   */
+  class ImmediateStorage implements SessionManager {
+    constructor(private event: RequestEvent) {}
+    
+    async setSessionItem(key: string, value: unknown): Promise<void> {
+      const cookieValue = typeof value === 'string' ? value : JSON.stringify(value);
+      this.event.cookies.set(`kinde_${key}`, cookieValue, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+        maxAge: 900, // 15 minutes - enough for OAuth flow
+        path: '/'
+      });
+    }
+    
+    async getSessionItem(key: string): Promise<unknown | null> {
+      return this.event.cookies.get(`kinde_${key}`) || null;
+    }
+    
+    async removeSessionItem(key: string): Promise<void> {
+      this.event.cookies.delete(`kinde_${key}`, { path: '/' });
+    }
+    
+    async setItems(items: Record<string, unknown>): Promise<void> {
+      for (const [key, value] of Object.entries(items)) {
+        await this.setSessionItem(key, value);
+      }
+    }
+    
+    async removeItems(...keys: string[]): Promise<void> {
+      for (const key of keys) {
+        await this.removeSessionItem(key);
+      }
+    }
+    
+    async destroySession(): Promise<void> {
+      // Clean up OAuth temporary data
+      await this.removeItems(StorageKeys.state, StorageKeys.nonce, StorageKeys.codeVerifier);
+    }
+  }
+  
+  /**
+   * Initialize hybrid storage strategy:
+   * - KV: Long-term tokens (accessToken, idToken, refreshToken)
+   * - Cookies: Temporary OAuth data (state, nonce, codeVerifier)
    */
   export function initializeKindeAuth(event: RequestEvent): boolean {
-    const platform = event.platform as any;
-    const env = platform?.env;
-    const AUTH_STORAGE = env?.AUTH_STORAGE;
-    
-    console.log('=== INIT DEBUG ===');
-    console.log('Platform:', !!platform);
-    console.log('Env:', !!env);
-    console.log('AUTH_STORAGE:', !!AUTH_STORAGE);
-    console.log('AUTH_STORAGE type:', typeof AUTH_STORAGE);
-    
-    // Debug the KV namespace object
-    if (AUTH_STORAGE) {
-      console.log('KV methods available:', Object.getOwnPropertyNames(AUTH_STORAGE));
-      console.log('KV prototype:', Object.getPrototypeOf(AUTH_STORAGE));
-    }
-    
-    if (!AUTH_STORAGE) {
-      console.error('KV storage not available for Kinde authentication');
-      return false;
-    }
-    
     try {
-      // Test basic KV operations directly first
-      testKvDirectly(AUTH_STORAGE);
+      const platform = event.platform as any;
+      const AUTH_STORAGE = platform?.env?.AUTH_STORAGE;
       
-      // Use our debug storage class
-      const storage = new DebugKvStorage(AUTH_STORAGE, { defaultTtl: 3600 });
-      console.log('DebugKvStorage created successfully');
+      if (!AUTH_STORAGE) {
+        console.error('KV storage not available for token storage');
+        return false;
+      }
       
-      setActiveStorage(storage);
-      setInsecureStorage(storage);
+      // KV Storage: Perfect for tokens (eventual consistency is fine)
+      const tokenStorage = new KvStorage(AUTH_STORAGE, { defaultTtl: 3600 });
       
-      console.log('Storage set successfully');
-      console.log('getActiveStorage():', !!getActiveStorage());
-      console.log('getInsecureStorage():', !!getInsecureStorage());
+      // Cookie Storage: Perfect for OAuth temp data (immediate consistency required)
+      const tempStorage = new ImmediateStorage(event);
+      
+      console.log('Hybrid storage initialized: KV for tokens, cookies for OAuth temp data');
+      
+      setActiveStorage(tokenStorage);     // Long-term tokens
+      setInsecureStorage(tempStorage);    // Temporary OAuth data
       
       return true;
     } catch (error) {
-      console.error('Error initializing KV storage:', error);
+      console.error('Error initializing hybrid storage:', error);
       return false;
     }
   }
