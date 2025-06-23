@@ -9,8 +9,7 @@ kv_namespaces = [
 
 [vars]
 KINDE_ISSUER_URL = "https://burntjam2.kinde.com"
-KINDE_CLIENT_ID = "53add5e70e57400eb752ddb02bc07fb6"
-KINDE_CLIENT_SECRET = "W0PV642CRqIptpSAvtZB6euWf2tgxQhKYJUFzYZKo4Z8oGm8wW" 
+KINDE_CLIENT_ID = "6433b6bd371b413ba213c22f77181344"
 KINDE_REDIRECT_URL = "https://jsutils-update.sveltekit-cloudflare.pages.dev/api/auth/kinde_callback"
 KINDE_POST_LOGOUT_REDIRECT_URL = "https://jsutils-update.sveltekit-cloudflare.pages.dev/"
 KINDE_POST_LOGIN_REDIRECT_URL = "https://jsutils-update.sveltekit-cloudflare.pages.dev/dashboard"
