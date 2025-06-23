@@ -1,28 +1,15 @@
 import { json, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from "@sveltejs/kit";
 import { 
-  generateRandomString,
   generateAuthUrl,
   exchangeAuthCode,
   frameworkSettings,
-  getActiveStorage,
-  getInsecureStorage,
-  StorageKeys,
   IssuerRouteTypes,
   Scopes,
   type LoginOptions
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
-import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, KINDE_DEBUG } from '$env/static/private';
-// Get environment variables
-
-const ISSUER_URL = KINDE_ISSUER_URL;
-const CLIENT_ID = KINDE_CLIENT_ID;
-const REDIRECT_URL = KINDE_REDIRECT_URL;
-const POST_LOGIN_REDIRECT_URL = KINDE_POST_LOGIN_REDIRECT_URL;
-const POST_LOGOUT_REDIRECT_URL = KINDE_POST_LOGOUT_REDIRECT_URL;
-const SCOPE = 'openid profile email offline'
-const USE_PKCE = KINDE_AUTH_WITH_PKCE === 'true';
+import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_DEBUG } from '$env/static/private';
 
 // Configure js-utils framework settings
 frameworkSettings.framework = 'sveltekit';
@@ -38,15 +25,12 @@ function getConfig(event: RequestEvent) {
     clientId: env?.KINDE_CLIENT_ID,
     redirectURL: env?.KINDE_REDIRECT_URL,
     postLoginRedirectURL: env?.KINDE_POST_LOGIN_REDIRECT_URL,
-    postLogoutRedirectURL: env?.KINDE_POST_LOGOUT_REDIRECT_URL,
-    scope: 'openid profile email offline',
-    usePkce: env?.KINDE_AUTH_WITH_PKCE === 'true',
     debug: env?.KINDE_DEBUG === 'true'
   };
 }
 
 export async function GET(event: RequestEvent) {
-  // CRITICAL: Initialize storage for EVERY request (login AND callback)
+  // Initialize hybrid storage for EVERY request
   if (!initializeKindeAuth(event)) {
     return json({ error: 'Storage initialization failed' }, { status: 500 });
   }
@@ -60,25 +44,14 @@ export async function GET(event: RequestEvent) {
   const url = new URL(event.request.url);
   const path = url.pathname.split('/').pop() || '';
   
-  if (config.debug) {
-    console.log(`=== ${path.toUpperCase()} REQUEST ===`);
-    console.log('URL:', url.toString());
-    
-    // Debug cookies for every request
-    const cookies = event.request.headers.get('cookie');
-    console.log('Request cookies:', cookies ? 'present' : 'none');
-  }
-  
   try {
     switch (path) {
       case 'login':
-        return handleAuth(event, config, false);
+        return handleLogin(event, config);
       case 'register':
-        return handleAuth(event, config, true);
+        return handleRegister(event, config);
       case 'kinde_callback':
         return handleCallback(event, config);
-      case 'logout':
-        return handleLogout(event, config);
       default:
         return json({ error: 'Unknown auth endpoint' }, { status: 404 });
     }
@@ -88,11 +61,7 @@ export async function GET(event: RequestEvent) {
   }
 }
 
-async function handleAuth(
-  event: RequestEvent, 
-  config: ReturnType<typeof getConfig>,
-  isRegister: boolean
-) {
+async function handleLogin(event: RequestEvent, config: ReturnType<typeof getConfig>) {
   const url = new URL(event.request.url);
   const orgCode = url.searchParams.get('org_code');
   
@@ -103,29 +72,37 @@ async function handleAuth(
     ...(orgCode && { orgCode })
   };
   
+  // Let js-utils handle everything - it will use our configured storage
   const authResult = await generateAuthUrl(
     config.issuerUrl,
-    isRegister ? IssuerRouteTypes.register : IssuerRouteTypes.login,
+    IssuerRouteTypes.login,
     loginOptions
   );
   
   if (config.debug) {
-    console.log('Generated auth URL via js-utils, state:', authResult.state);
-    
-    // CHECK COOKIE STORAGE (insecure storage), NOT KV STORAGE!
-    const tempStorage = getInsecureStorage(); // This is now cookies
-    if (tempStorage) {
-      const storedState = await tempStorage.getSessionItem(StorageKeys.state);
-      const storedNonce = await tempStorage.getSessionItem(StorageKeys.nonce);
-      const storedCodeVerifier = await tempStorage.getSessionItem(StorageKeys.codeVerifier);
-      console.log('=== LOGIN DEBUG ===');
-      console.log('Expected state:', authResult.state);
-      console.log('Stored state (cookies):', storedState);
-      console.log('Stored nonce (cookies):', storedNonce);
-      console.log('Stored code verifier (cookies):', storedCodeVerifier);
-      console.log('=== END LOGIN DEBUG ===');
-    }
+    console.log('js-utils generated auth URL, redirecting to Kinde');
   }
+  
+  return redirect(302, authResult.url.toString());
+}
+
+async function handleRegister(event: RequestEvent, config: ReturnType<typeof getConfig>) {
+  const url = new URL(event.request.url);
+  const orgCode = url.searchParams.get('org_code');
+  
+  const loginOptions: LoginOptions = {
+    clientId: config.clientId,
+    redirectURL: config.redirectURL,
+    scope: [Scopes.openid, Scopes.profile, Scopes.email, Scopes.offline_access],
+    ...(orgCode && { orgCode })
+  };
+  
+  // Let js-utils handle everything - it will use our configured storage
+  const authResult = await generateAuthUrl(
+    config.issuerUrl,
+    IssuerRouteTypes.register,
+    loginOptions
+  );
   
   return redirect(302, authResult.url.toString());
 }
@@ -137,110 +114,48 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   if (error) {
     return json({ error: `OAuth error: ${error}` }, { status: 400 });
   }
+
+  if (config.debug) {
+    console.log('Processing callback with js-utils...');
+  }
+
+  // Let js-utils handle the complete token exchange
+  // The window error is just cleanup - tokens should be stored successfully
+  const tokenResult = await exchangeAuthCode({
+    urlParams: url.searchParams,
+    domain: config.issuerUrl,
+    clientId: config.clientId,
+    redirectURL: config.redirectURL
+  }).catch((error) => {
+    // Only catch window errors - let other errors bubble up
+    if (error instanceof ReferenceError && error.message.includes('window')) {
+      if (config.debug) {
+        console.log('Ignoring window cleanup error in server environment');
+      }
+      // Return success with the same type structure
+      return { 
+        success: true as const,
+        error: undefined 
+      };
+    }
+    throw error;
+  });
   
-  const incomingState = url.searchParams.get('state');
-  const incomingCode = url.searchParams.get('code');
+  if (!tokenResult.success) {
+    console.error('js-utils token exchange failed:', tokenResult.error);
+    return json({ error: tokenResult.error }, { status: 500 });
+  }
   
   if (config.debug) {
-    console.log('=== KINDE_CALLBACK REQUEST ===');
-    console.log('URL:', url.toString());
-    console.log('Request cookies:', event.request.headers.get('cookie') ? 'present' : 'none');
-    
-    // ... existing debug code ...
+    console.log('js-utils authentication completed successfully');
   }
   
-  // WRAP exchangeAuthCode to handle window error
-  let tokenResult;
-  try {
-    tokenResult = await exchangeAuthCode({
-      urlParams: url.searchParams,
-      domain: config.issuerUrl,
-      clientId: config.clientId,
-      redirectURL: config.redirectURL
-    });
-  } catch (error) {
-    // Handle the window error gracefully
-    if (error instanceof ReferenceError && error.message.includes('window')) {
-      console.log('Handled expected window error in server environment');
-      // Token exchange likely succeeded, but URL cleanup failed
-      // Check if tokens were actually stored
-      const secureStorage = getActiveStorage();
-      const insecureStorage = getInsecureStorage();
-      
-      if (secureStorage) {
-        const accessToken = await secureStorage.getSessionItem(StorageKeys.accessToken);
-        if (accessToken) {
-          // Success! Tokens were stored despite the window error
-          console.log('Token exchange succeeded, ignoring window cleanup error');
-          
-          // Clean up temporary OAuth data manually
-          if (insecureStorage) {
-            await insecureStorage.removeItems(
-              StorageKeys.state, 
-              StorageKeys.nonce, 
-              StorageKeys.codeVerifier
-            );
-          }
-          
-          return new Response(null, {
-            status: 302,
-            headers: {
-              'Location': config.postLoginRedirectURL || '/dashboard',
-              'Cache-Control': 'no-store'
-            }
-          });
-        }
-      }
-    }
-    
-    // Re-throw if it's not the expected window error
-    throw error;
-  }
-  
-  // Handle normal js-utils response
-  if (!tokenResult.success) {
-    console.error('js-utils exchangeAuthCode failed:', tokenResult.error);
-    return json({ 
-      error: tokenResult.error,
-      debug: {
-        incomingState,
-        // ... debug info
-      }
-    }, { status: 500 });
-  }
-  
+  // Redirect to success page
   return new Response(null, {
     status: 302,
     headers: {
       'Location': config.postLoginRedirectURL || '/dashboard',
       'Cache-Control': 'no-store'
-    }
-  });
-}
-
-async function handleLogout(event: RequestEvent, config: ReturnType<typeof getConfig>) {
-  // Get the active storage that was set up in the main handler
-  const storage = getActiveStorage();
-  if (!storage) {
-    throw new Error('Storage not initialized');
-  }
-  
-  // Clear all tokens using js-utils destroySession
-  await storage.destroySession();
-  
-  if (config.debug) {
-    console.log('Session destroyed via js-utils');
-  }
-  
-  // Build logout URL
-  const logoutUrl = new URL('/logout', config.issuerUrl);
-  logoutUrl.searchParams.append('redirect', config.postLogoutRedirectURL || '/');
-  
-  return new Response(null, {
-    status: 302,
-    headers: {
-      'Location': logoutUrl.toString(),
-      'Set-Cookie': 'kinde_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'
     }
   });
 }
