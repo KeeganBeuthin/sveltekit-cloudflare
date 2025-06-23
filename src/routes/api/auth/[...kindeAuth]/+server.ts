@@ -13,9 +13,9 @@ import {
   type LoginOptions
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
-import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, KINDE_DEBUG } from '$env/static/private';
+import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, KINDE_DEBUG } from '$env/static/private';
 // Get environment variables
-const SECRET = KINDE_CLIENT_SECRET;
+
 const ISSUER_URL = KINDE_ISSUER_URL;
 const CLIENT_ID = KINDE_CLIENT_ID;
 const REDIRECT_URL = KINDE_REDIRECT_URL;
@@ -36,7 +36,6 @@ function getConfig(event: RequestEvent) {
   return {
     issuerUrl: env?.KINDE_ISSUER_URL,
     clientId: env?.KINDE_CLIENT_ID,
-    clientSecret: env?.KINDE_CLIENT_SECRET,
     redirectURL: env?.KINDE_REDIRECT_URL,
     postLoginRedirectURL: env?.KINDE_POST_LOGIN_REDIRECT_URL,
     postLogoutRedirectURL: env?.KINDE_POST_LOGOUT_REDIRECT_URL,
@@ -54,7 +53,7 @@ export async function GET(event: RequestEvent) {
   
   const config = getConfig(event);
   
-  if (!config.issuerUrl || !config.clientId || !config.clientSecret || !config.redirectURL) {
+  if (!config.issuerUrl || !config.clientId || !config.redirectURL) {
     return json({ error: 'Missing required Kinde configuration' }, { status: 500 });
   }
   
