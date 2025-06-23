@@ -141,60 +141,70 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   const incomingState = url.searchParams.get('state');
   const incomingCode = url.searchParams.get('code');
   
-  // CRITICAL DEBUG: Check what cookies are actually received
-  console.log('=== CALLBACK COOKIE DEBUG ===');
-  console.log('Incoming state from URL:', incomingState);
-  console.log('Incoming code:', incomingCode ? 'present' : 'missing');
-  
-  // Check raw cookie header
-  const rawCookies = event.request.headers.get('cookie');
-  console.log('Raw cookie header:', rawCookies);
-  
-  // Check individual cookies through SvelteKit
-  const kindeCookies = {
-    state: event.cookies.get('kinde_state'),
-    nonce: event.cookies.get('kinde_nonce'), 
-    codeVerifier: event.cookies.get('kinde_codeVerifier')
-  };
-  console.log('SvelteKit parsed cookies:', kindeCookies);
-  
-  // Check if storage is working
-  const tempStorage = getInsecureStorage();
-  if (tempStorage) {
-    const storedState = await tempStorage.getSessionItem(StorageKeys.state);
-    const storedNonce = await tempStorage.getSessionItem(StorageKeys.nonce);
-    const storedCodeVerifier = await tempStorage.getSessionItem(StorageKeys.codeVerifier);
+  if (config.debug) {
+    console.log('=== KINDE_CALLBACK REQUEST ===');
+    console.log('URL:', url.toString());
+    console.log('Request cookies:', event.request.headers.get('cookie') ? 'present' : 'none');
     
-    console.log('Storage retrieved values:');
-    console.log('- State:', storedState);
-    console.log('- Nonce:', storedNonce); 
-    console.log('- Code Verifier:', storedCodeVerifier);
-    
-    console.log('State comparison:');
-    console.log('- Incoming:', incomingState);
-    console.log('- Stored:', storedState);
-    console.log('- Match:', incomingState === storedState);
-  } else {
-    console.log('ERROR: No temp storage available in callback!');
+    // ... existing debug code ...
   }
-  console.log('=== END CALLBACK DEBUG ===');
   
-  // Let js-utils handle the exchange (this is where the error occurs)
-  const tokenResult = await exchangeAuthCode({
-    urlParams: url.searchParams,
-    domain: config.issuerUrl,
-    clientId: config.clientId,
-    redirectURL: config.redirectURL
-  });
+  // WRAP exchangeAuthCode to handle window error
+  let tokenResult;
+  try {
+    tokenResult = await exchangeAuthCode({
+      urlParams: url.searchParams,
+      domain: config.issuerUrl,
+      clientId: config.clientId,
+      redirectURL: config.redirectURL
+    });
+  } catch (error) {
+    // Handle the window error gracefully
+    if (error instanceof ReferenceError && error.message.includes('window')) {
+      console.log('Handled expected window error in server environment');
+      // Token exchange likely succeeded, but URL cleanup failed
+      // Check if tokens were actually stored
+      const secureStorage = getActiveStorage();
+      const insecureStorage = getInsecureStorage();
+      
+      if (secureStorage) {
+        const accessToken = await secureStorage.getSessionItem(StorageKeys.accessToken);
+        if (accessToken) {
+          // Success! Tokens were stored despite the window error
+          console.log('Token exchange succeeded, ignoring window cleanup error');
+          
+          // Clean up temporary OAuth data manually
+          if (insecureStorage) {
+            await insecureStorage.removeItems(
+              StorageKeys.state, 
+              StorageKeys.nonce, 
+              StorageKeys.codeVerifier
+            );
+          }
+          
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': config.postLoginRedirectURL || '/dashboard',
+              'Cache-Control': 'no-store'
+            }
+          });
+        }
+      }
+    }
+    
+    // Re-throw if it's not the expected window error
+    throw error;
+  }
   
+  // Handle normal js-utils response
   if (!tokenResult.success) {
     console.error('js-utils exchangeAuthCode failed:', tokenResult.error);
     return json({ 
       error: tokenResult.error,
       debug: {
         incomingState,
-        rawCookies,
-        kindeCookies
+        // ... debug info
       }
     }, { status: 500 });
   }
