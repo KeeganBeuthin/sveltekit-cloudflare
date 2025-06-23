@@ -47,14 +47,13 @@ function getConfig(event: RequestEvent) {
 }
 
 export async function GET(event: RequestEvent) {
-  // Initialize Kinde auth with KV storage - this sets up the global active storage
+  // CRITICAL: Initialize storage for EVERY request (login AND callback)
   if (!initializeKindeAuth(event)) {
-    return json({ error: 'KV storage not available' }, { status: 500 });
+    return json({ error: 'Storage initialization failed' }, { status: 500 });
   }
   
   const config = getConfig(event);
   
-  // Validate required config
   if (!config.issuerUrl || !config.clientId || !config.clientSecret || !config.redirectURL) {
     return json({ error: 'Missing required Kinde configuration' }, { status: 500 });
   }
@@ -63,7 +62,12 @@ export async function GET(event: RequestEvent) {
   const path = url.pathname.split('/').pop() || '';
   
   if (config.debug) {
-    console.log(`Auth request: ${path}`);
+    console.log(`=== ${path.toUpperCase()} REQUEST ===`);
+    console.log('URL:', url.toString());
+    
+    // Debug cookies for every request
+    const cookies = event.request.headers.get('cookie');
+    console.log('Request cookies:', cookies ? 'present' : 'none');
   }
   
   try {
@@ -136,29 +140,55 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   }
   
   const incomingState = url.searchParams.get('state');
+  const incomingCode = url.searchParams.get('code');
   
-  if (config.debug) {
-    console.log('Processing callback with state:', incomingState);
-    
-    // CHECK COOKIE STORAGE (insecure storage), NOT KV STORAGE!
-    const tempStorage = getInsecureStorage(); // This is now cookies
-    if (tempStorage) {
-      const storedState = await tempStorage.getSessionItem(StorageKeys.state);
-      const storedCodeVerifier = await tempStorage.getSessionItem(StorageKeys.codeVerifier);
-      const storedNonce = await tempStorage.getSessionItem(StorageKeys.nonce);
-      console.log('=== CALLBACK DEBUG ===');
-      console.log('Incoming state:', incomingState);
-      console.log('Stored state (cookies):', storedState);
-      console.log('Stored code verifier (cookies):', storedCodeVerifier);
-      console.log('Stored nonce (cookies):', storedNonce);
-      console.log('State match:', incomingState === storedState);
-      console.log('=== END CALLBACK DEBUG ===');
-    } else {
-      console.log('ERROR: No temp storage found in callback');
-    }
+  console.log('=== CALLBACK DEBUG START ===');
+  console.log('Incoming state:', incomingState);
+  console.log('Incoming code:', incomingCode ? 'present' : 'missing');
+  
+  // Check if storage is working
+  const tempStorage = getInsecureStorage();
+  const tokenStorage = getActiveStorage();
+  
+  console.log('Temp storage available:', !!tempStorage);
+  console.log('Token storage available:', !!tokenStorage);
+  
+  if (!tempStorage) {
+    console.error('CRITICAL: No temp storage in callback - cookies not accessible!');
+    return json({ error: 'Session storage not available' }, { status: 500 });
   }
   
-  // js-utils will automatically use the correct storage
+  // Debug all cookies
+  const allCookies = {
+    state: await tempStorage.getSessionItem(StorageKeys.state),
+    nonce: await tempStorage.getSessionItem(StorageKeys.nonce),
+    codeVerifier: await tempStorage.getSessionItem(StorageKeys.codeVerifier)
+  };
+  
+  console.log('All stored cookies:', allCookies);
+  console.log('State match:', incomingState === allCookies.state);
+  console.log('=== CALLBACK DEBUG END ===');
+  
+  if (incomingState !== allCookies.state) {
+    console.error('State mismatch!');
+    console.error('Expected:', allCookies.state);
+    console.error('Received:', incomingState);
+    
+    // Additional debugging
+    const rawCookies = event.request.headers.get('cookie');
+    console.log('Raw cookie header:', rawCookies);
+    
+    return json({ 
+      error: 'Invalid state parameter',
+      debug: config.debug ? {
+        expected: allCookies.state,
+        received: incomingState,
+        cookies: rawCookies
+      } : undefined
+    }, { status: 400 });
+  }
+  
+  // Continue with token exchange...
   const tokenResult = await exchangeAuthCode({
     urlParams: url.searchParams,
     domain: config.issuerUrl,
@@ -167,18 +197,16 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   });
   
   if (!tokenResult.success) {
-    if (config.debug) {
-      console.error('Token exchange failed:', tokenResult.error);
-    }
+    console.error('Token exchange failed:', tokenResult.error);
     return json({ error: tokenResult.error }, { status: 500 });
   }
   
-  // Generate session cookie
-  const sessionId = generateRandomString(32);
+  console.log('Authentication successful!');
   
-  if (config.debug) {
-    console.log('Authentication successful, tokens stored in KV');
-  }
+  // Clean up temp cookies
+  await tempStorage.destroySession();
+  
+  const sessionId = generateRandomString(32);
   
   return new Response(null, {
     status: 302,
