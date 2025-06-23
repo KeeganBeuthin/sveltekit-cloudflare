@@ -12,6 +12,7 @@ import {
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
 import { StorageKeys } from '@kinde/js-utils';
+import { getInsecureStorage } from '@kinde/js-utils';
 import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, KINDE_DEBUG } from '$env/static/private';
 // Get environment variables
 const SECRET = KINDE_CLIENT_SECRET;
@@ -89,20 +90,16 @@ async function handleLogin(
   config: ReturnType<typeof getConfig>,
   options: { isRegister: boolean }
 ) {
-  // Storage is already initialized in the main GET handler
   const url = new URL(event.request.url);
   const orgCode = url.searchParams.get('org_code');
   
-  // Build login options for js-utils generateAuthUrl - let js-utils manage everything
   const loginOptions: LoginOptions = {
     clientId: config.clientId,
     redirectURL: config.redirectURL,
     scope: [Scopes.openid, Scopes.profile, Scopes.email, Scopes.offline_access],
-    // Let js-utils generate and manage state, nonce, and PKCE automatically
     ...(orgCode && { orgCode })
   };
   
-  // Generate auth URL using js-utils - this handles everything automatically
   const authResult = await generateAuthUrl(
     config.issuerUrl,
     options.isRegister ? IssuerRouteTypes.register : IssuerRouteTypes.login,
@@ -112,11 +109,18 @@ async function handleLogin(
   if (config.debug) {
     console.log('Generated auth URL via js-utils, state:', authResult.state);
     
-    // Debug: Verify state was stored
-    const storage = getActiveStorage();
-    if (storage) {
-      const storedState = await storage.getSessionItem(StorageKeys.state);
-      console.log('State stored in KV:', storedState);
+    // CHECK COOKIE STORAGE (insecure storage), NOT KV STORAGE!
+    const tempStorage = getInsecureStorage(); // This is now cookies
+    if (tempStorage) {
+      const storedState = await tempStorage.getSessionItem(StorageKeys.state);
+      const storedNonce = await tempStorage.getSessionItem(StorageKeys.nonce);
+      const storedCodeVerifier = await tempStorage.getSessionItem(StorageKeys.codeVerifier);
+      console.log('=== LOGIN DEBUG ===');
+      console.log('Expected state:', authResult.state);
+      console.log('Stored state (cookies):', storedState);
+      console.log('Stored nonce (cookies):', storedNonce);
+      console.log('Stored code verifier (cookies):', storedCodeVerifier);
+      console.log('=== END LOGIN DEBUG ===');
     }
   }
   
@@ -124,7 +128,6 @@ async function handleLogin(
 }
 
 async function handleCallback(event: RequestEvent, config: ReturnType<typeof getConfig>) {
-  // Storage is already initialized in the main GET handler
   const url = new URL(event.request.url);
   const error = url.searchParams.get('error');
   
@@ -137,25 +140,25 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   if (config.debug) {
     console.log('Processing callback with state:', incomingState);
     
-    // Debug: Check what's in storage before exchangeAuthCode
-    const storage = getActiveStorage();
-    if (storage) {
-      const storedState = await storage.getSessionItem(StorageKeys.state);
-      const storedCodeVerifier = await storage.getSessionItem(StorageKeys.codeVerifier);
-      const storedNonce = await storage.getSessionItem(StorageKeys.nonce);
+    // CHECK COOKIE STORAGE (insecure storage), NOT KV STORAGE!
+    const tempStorage = getInsecureStorage(); // This is now cookies
+    if (tempStorage) {
+      const storedState = await tempStorage.getSessionItem(StorageKeys.state);
+      const storedCodeVerifier = await tempStorage.getSessionItem(StorageKeys.codeVerifier);
+      const storedNonce = await tempStorage.getSessionItem(StorageKeys.nonce);
       console.log('=== CALLBACK DEBUG ===');
       console.log('Incoming state:', incomingState);
-      console.log('Stored state:', storedState);
-      console.log('Stored code verifier:', storedCodeVerifier);
-      console.log('Stored nonce:', storedNonce);
+      console.log('Stored state (cookies):', storedState);
+      console.log('Stored code verifier (cookies):', storedCodeVerifier);
+      console.log('Stored nonce (cookies):', storedNonce);
       console.log('State match:', incomingState === storedState);
-      console.log('=== END DEBUG ===');
+      console.log('=== END CALLBACK DEBUG ===');
     } else {
-      console.log('ERROR: No storage found in callback - this is the problem!');
+      console.log('ERROR: No temp storage found in callback');
     }
   }
   
-  // Use js-utils exchangeAuthCode - it handles everything automatically
+  // js-utils will automatically use the correct storage
   const tokenResult = await exchangeAuthCode({
     urlParams: url.searchParams,
     domain: config.issuerUrl,
@@ -174,10 +177,9 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   const sessionId = generateRandomString(32);
   
   if (config.debug) {
-    console.log('Authentication successful, tokens stored via js-utils');
+    console.log('Authentication successful, tokens stored in KV');
   }
   
-  // Always redirect to the configured post-login URL
   return new Response(null, {
     status: 302,
     headers: {
