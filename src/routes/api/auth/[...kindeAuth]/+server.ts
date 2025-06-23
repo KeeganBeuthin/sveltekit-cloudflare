@@ -6,13 +6,13 @@ import {
   exchangeAuthCode,
   frameworkSettings,
   getActiveStorage,
+  getInsecureStorage,
+  StorageKeys,
   IssuerRouteTypes,
   Scopes,
   type LoginOptions
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
-import { StorageKeys } from '@kinde/js-utils';
-import { getInsecureStorage } from '@kinde/js-utils';
 import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_CLIENT_SECRET, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_AUTH_WITH_PKCE, KINDE_DEBUG } from '$env/static/private';
 // Get environment variables
 const SECRET = KINDE_CLIENT_SECRET;
@@ -73,9 +73,9 @@ export async function GET(event: RequestEvent) {
   try {
     switch (path) {
       case 'login':
-        return handleLogin(event, config, { isRegister: false });
+        return handleAuth(event, config, false);
       case 'register':
-        return handleLogin(event, config, { isRegister: true });
+        return handleAuth(event, config, true);
       case 'kinde_callback':
         return handleCallback(event, config);
       case 'logout':
@@ -89,10 +89,10 @@ export async function GET(event: RequestEvent) {
   }
 }
 
-async function handleLogin(
+async function handleAuth(
   event: RequestEvent, 
   config: ReturnType<typeof getConfig>,
-  options: { isRegister: boolean }
+  isRegister: boolean
 ) {
   const url = new URL(event.request.url);
   const orgCode = url.searchParams.get('org_code');
@@ -106,7 +106,7 @@ async function handleLogin(
   
   const authResult = await generateAuthUrl(
     config.issuerUrl,
-    options.isRegister ? IssuerRouteTypes.register : IssuerRouteTypes.login,
+    isRegister ? IssuerRouteTypes.register : IssuerRouteTypes.login,
     loginOptions
   );
   
@@ -142,53 +142,45 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   const incomingState = url.searchParams.get('state');
   const incomingCode = url.searchParams.get('code');
   
-  console.log('=== CALLBACK DEBUG START ===');
-  console.log('Incoming state:', incomingState);
+  // CRITICAL DEBUG: Check what cookies are actually received
+  console.log('=== CALLBACK COOKIE DEBUG ===');
+  console.log('Incoming state from URL:', incomingState);
   console.log('Incoming code:', incomingCode ? 'present' : 'missing');
+  
+  // Check raw cookie header
+  const rawCookies = event.request.headers.get('cookie');
+  console.log('Raw cookie header:', rawCookies);
+  
+  // Check individual cookies through SvelteKit
+  const kindeCookies = {
+    state: event.cookies.get('kinde_state'),
+    nonce: event.cookies.get('kinde_nonce'), 
+    codeVerifier: event.cookies.get('kinde_codeVerifier')
+  };
+  console.log('SvelteKit parsed cookies:', kindeCookies);
   
   // Check if storage is working
   const tempStorage = getInsecureStorage();
-  const tokenStorage = getActiveStorage();
-  
-  console.log('Temp storage available:', !!tempStorage);
-  console.log('Token storage available:', !!tokenStorage);
-  
-  if (!tempStorage) {
-    console.error('CRITICAL: No temp storage in callback - cookies not accessible!');
-    return json({ error: 'Session storage not available' }, { status: 500 });
-  }
-  
-  // Debug all cookies
-  const allCookies = {
-    state: await tempStorage.getSessionItem(StorageKeys.state),
-    nonce: await tempStorage.getSessionItem(StorageKeys.nonce),
-    codeVerifier: await tempStorage.getSessionItem(StorageKeys.codeVerifier)
-  };
-  
-  console.log('All stored cookies:', allCookies);
-  console.log('State match:', incomingState === allCookies.state);
-  console.log('=== CALLBACK DEBUG END ===');
-  
-  if (incomingState !== allCookies.state) {
-    console.error('State mismatch!');
-    console.error('Expected:', allCookies.state);
-    console.error('Received:', incomingState);
+  if (tempStorage) {
+    const storedState = await tempStorage.getSessionItem(StorageKeys.state);
+    const storedNonce = await tempStorage.getSessionItem(StorageKeys.nonce);
+    const storedCodeVerifier = await tempStorage.getSessionItem(StorageKeys.codeVerifier);
     
-    // Additional debugging
-    const rawCookies = event.request.headers.get('cookie');
-    console.log('Raw cookie header:', rawCookies);
+    console.log('Storage retrieved values:');
+    console.log('- State:', storedState);
+    console.log('- Nonce:', storedNonce); 
+    console.log('- Code Verifier:', storedCodeVerifier);
     
-    return json({ 
-      error: 'Invalid state parameter',
-      debug: config.debug ? {
-        expected: allCookies.state,
-        received: incomingState,
-        cookies: rawCookies
-      } : undefined
-    }, { status: 400 });
+    console.log('State comparison:');
+    console.log('- Incoming:', incomingState);
+    console.log('- Stored:', storedState);
+    console.log('- Match:', incomingState === storedState);
+  } else {
+    console.log('ERROR: No temp storage available in callback!');
   }
+  console.log('=== END CALLBACK DEBUG ===');
   
-  // Continue with token exchange...
+  // Let js-utils handle the exchange (this is where the error occurs)
   const tokenResult = await exchangeAuthCode({
     urlParams: url.searchParams,
     domain: config.issuerUrl,
@@ -197,23 +189,22 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   });
   
   if (!tokenResult.success) {
-    console.error('Token exchange failed:', tokenResult.error);
-    return json({ error: tokenResult.error }, { status: 500 });
+    console.error('js-utils exchangeAuthCode failed:', tokenResult.error);
+    return json({ 
+      error: tokenResult.error,
+      debug: {
+        incomingState,
+        rawCookies,
+        kindeCookies
+      }
+    }, { status: 500 });
   }
-  
-  console.log('Authentication successful!');
-  
-  // Clean up temp cookies
-  await tempStorage.destroySession();
-  
-  const sessionId = generateRandomString(32);
   
   return new Response(null, {
     status: 302,
     headers: {
       'Location': config.postLoginRedirectURL || '/dashboard',
-      'Cache-Control': 'no-store',
-      'Set-Cookie': `kinde_session=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`
+      'Cache-Control': 'no-store'
     }
   });
 }

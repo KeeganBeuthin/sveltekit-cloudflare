@@ -249,3 +249,55 @@ class DebugKvStorage extends KvStorage {
     }
   }
 }
+
+class CookieStorage implements SessionManager {
+  constructor(private event: RequestEvent) {}
+  
+  async setSessionItem(key: string, value: unknown): Promise<void> {
+    const cookieValue = typeof value === 'string' ? value : JSON.stringify(value);
+    const cookieName = `kinde_${key}`;
+    
+    console.log(`Setting cookie ${cookieName} = ${cookieValue}`);
+    
+    this.event.cookies.set(cookieName, cookieValue, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 900, // 15 minutes
+      path: '/', // Ensure path is correct
+      // Don't set domain - let it default to current domain
+    });
+    
+    // Verify cookie was set
+    const verified = this.event.cookies.get(cookieName);
+    console.log(`Cookie ${cookieName} verification:`, verified);
+  }
+  
+  async getSessionItem(key: string): Promise<unknown | null> {
+    const cookieName = `kinde_${key}`;
+    const value = this.event.cookies.get(cookieName);
+    console.log(`Getting cookie ${cookieName} = ${value}`);
+    return value || null;
+  }
+  
+  async removeSessionItem(key: string): Promise<void> {
+    this.event.cookies.delete(`kinde_${key}`, { path: '/' });
+  }
+  
+  async setItems(items: Record<string, unknown>): Promise<void> {
+    for (const [key, value] of Object.entries(items)) {
+      await this.setSessionItem(key, value);
+    }
+  }
+  
+  async removeItems(...keys: string[]): Promise<void> {
+    for (const key of keys) {
+      await this.removeSessionItem(key);
+    }
+  }
+  
+  async destroySession(): Promise<void> {
+    // Clean up OAuth temporary data
+    await this.removeItems(StorageKeys.state, StorageKeys.nonce, StorageKeys.codeVerifier);
+  }
+}
