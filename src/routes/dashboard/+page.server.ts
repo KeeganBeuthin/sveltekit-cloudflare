@@ -25,16 +25,6 @@ export const load: PageServerLoad = async (event) => {
       console.log('- Access Token:', accessToken ? 'present' : 'missing');
       console.log('- ID Token:', idToken ? 'present' : 'missing');
       console.log('- Refresh Token:', refreshToken ? 'present' : 'missing');
-      
-      // If tokens are missing, it's likely KV eventual consistency
-      if (!accessToken && !idToken) {
-        console.log('Tokens missing - likely KV eventual consistency issue');
-        return {
-          authenticated: false,
-          error: 'Authentication tokens not yet available (KV eventual consistency)',
-          retry: true  // Add a flag to indicate this should be retried
-        };
-      }
     }
     
     // Use js-utils token helpers - they automatically use the active storage!
