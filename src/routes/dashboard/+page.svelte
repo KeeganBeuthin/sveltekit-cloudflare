@@ -1,26 +1,47 @@
 <script>
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   
   export let data; // This will receive data from +page.server.ts
   
   let userProfile = null;
   let loading = true;
   let error = null;
+  let retryCount = 0;
+  const maxRetries = 3;
   
   onMount(async () => {
+    await checkAuthentication();
+  });
+  
+  async function checkAuthentication() {
     try {
       if (!data.authenticated) {
+        // If it's a KV consistency issue, retry after a short delay
+        if (data.retry && retryCount < maxRetries) {
+          console.log(`Authentication tokens not ready, retrying in 1s (attempt ${retryCount + 1}/${maxRetries})`);
+          retryCount++;
+          setTimeout(() => {
+            // Reload the page to re-run the server load function
+            window.location.reload();
+          }, 1000);
+          return;
+        }
+        
         error = data.error || 'Not authenticated';
         loading = false;
         return;
       }
       
-      // Fetch user profile with the access token
-      const response = await fetch('/api/user-profile', {
-        headers: {
-          'Authorization': `Bearer ${data.accessToken}`
-        }
-      });
+      // If we have user data from server, use it directly
+      if (data.user) {
+        userProfile = data.user;
+        loading = false;
+        return;
+      }
+      
+      // Fallback: fetch user profile via API
+      const response = await fetch('/api/user-profile');
       
       if (!response.ok) {
         const errorData = await response.json();
@@ -30,7 +51,7 @@
       const result = await response.json();
       
       if (result.authenticated) {
-        userProfile = result.profile;
+        userProfile = result.user;
       } else {
         error = 'Not authenticated';
       }
@@ -39,14 +60,18 @@
     } finally {
       loading = false;
     }
-  });
+  }
 </script>
 
 <main>
   <h1>Dashboard</h1>
   
   {#if loading}
-    <p>Loading...</p>
+    <p>Loading...
+      {#if retryCount > 0}
+        <br><small>Waiting for authentication tokens (attempt {retryCount}/{maxRetries})</small>
+      {/if}
+    </p>
   {:else if error}
     <div class="error">
       <p>Error: {error}</p>
