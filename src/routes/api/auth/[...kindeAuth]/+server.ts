@@ -6,7 +6,9 @@ import {
   frameworkSettings,
   IssuerRouteTypes,
   Scopes,
-  type LoginOptions
+  type LoginOptions,
+  getInsecureStorage,
+  StorageKeys
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
 
@@ -107,30 +109,36 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
     return json({ error: `OAuth error: ${error}` }, { status: 400 });
   }
 
+  // In server environment, exchangeAuthCode will store tokens then throw window error
+  // This is expected behavior - we just need to catch it and redirect
   try {
-    const tokenResult = await exchangeAuthCode({
+    await exchangeAuthCode({
       urlParams: url.searchParams,
       domain: config.issuerUrl,
       clientId: config.clientId,
       redirectURL: config.redirectURL
     });
-    
-    if (!tokenResult.success) {
-      console.error('Token exchange failed:', tokenResult.error);
-      return json({ error: tokenResult.error }, { status: 500 });
-    }
-    
-    return redirect(302, config.postLoginRedirectURL || '/dashboard');
-    
   } catch (error) {
-    // Handle the expected window error from js-utils in server environment
+    // Expected window error - tokens are already stored
     if (error instanceof ReferenceError && error.message.includes('window')) {
-      // The tokens should still be stored correctly despite the window error
-      // Just redirect to the post-login URL
+      // Clean up OAuth temp data
+      const insecureStorage = getInsecureStorage();
+      if (insecureStorage) {
+        await insecureStorage.removeItems(
+          StorageKeys.state, 
+          StorageKeys.nonce, 
+          StorageKeys.codeVerifier
+        );
+      }
+      
       return redirect(302, config.postLoginRedirectURL || '/dashboard');
     }
     
-    console.error('Callback error:', error);
+    // Unexpected error
+    console.error('Unexpected callback error:', error);
     return json({ error: 'Authentication failed' }, { status: 500 });
   }
+  
+  // This should never happen in server environment, but just in case
+  return redirect(302, config.postLoginRedirectURL || '/dashboard');
 }
