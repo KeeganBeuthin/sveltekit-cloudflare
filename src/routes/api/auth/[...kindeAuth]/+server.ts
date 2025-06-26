@@ -5,7 +5,6 @@ import {
   exchangeAuthCode,
   frameworkSettings,
   IssuerRouteTypes,
-  Scopes,
   type LoginOptions,
   getInsecureStorage,
   StorageKeys
@@ -30,7 +29,6 @@ function getConfig(event: RequestEvent) {
 }
 
 export async function GET(event: RequestEvent) {
-  // Initialize hybrid storage for EVERY request
   if (!initializeKindeAuth(event)) {
     return json({ error: 'Storage initialization failed' }, { status: 500 });
   }
@@ -68,7 +66,6 @@ async function handleLogin(event: RequestEvent, config: ReturnType<typeof getCon
   const loginOptions: LoginOptions = {
     clientId: config.clientId,
     redirectURL: config.redirectURL,
-    scope: [Scopes.openid, Scopes.profile, Scopes.email, Scopes.offline_access],
     ...(orgCode && { orgCode })
   };
   
@@ -88,7 +85,6 @@ async function handleRegister(event: RequestEvent, config: ReturnType<typeof get
   const loginOptions: LoginOptions = {
     clientId: config.clientId,
     redirectURL: config.redirectURL,
-    scope: [Scopes.openid, Scopes.profile, Scopes.email, Scopes.offline_access],
     ...(orgCode && { orgCode })
   };
   
@@ -109,8 +105,7 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
     return json({ error: `OAuth error: ${error}` }, { status: 400 });
   }
 
-  // In server environment, exchangeAuthCode will store tokens then throw window error
-  // This is expected behavior - we just need to catch it and redirect
+  // Use js-utils exchangeAuthCode - tokens are stored before window error occurs
   try {
     await exchangeAuthCode({
       urlParams: url.searchParams,
@@ -119,7 +114,7 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
       redirectURL: config.redirectURL
     });
   } catch (error) {
-    // Expected window error - tokens are already stored
+    // Expected window error in server environment - tokens are already stored
     if (error instanceof ReferenceError && error.message.includes('window')) {
       // Clean up OAuth temp data
       const insecureStorage = getInsecureStorage();
@@ -134,11 +129,10 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
       return redirect(302, config.postLoginRedirectURL || '/dashboard');
     }
     
-    // Unexpected error
     console.error('Unexpected callback error:', error);
     return json({ error: 'Authentication failed' }, { status: 500 });
   }
   
-  // This should never happen in server environment, but just in case
+  // This should never happen in server environment
   return redirect(302, config.postLoginRedirectURL || '/dashboard');
 }
