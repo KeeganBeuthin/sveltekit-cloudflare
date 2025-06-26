@@ -14,5 +14,6 @@ KINDE_REDIRECT_URL = "https://jsutils-update.sveltekit-cloudflare.pages.dev/api/
 KINDE_POST_LOGOUT_REDIRECT_URL = "https://jsutils-update.sveltekit-cloudflare.pages.dev/"
 KINDE_POST_LOGIN_REDIRECT_URL = "https://jsutils-update.sveltekit-cloudflare.pages.dev/dashboard"
 KINDE_AUTH_WITH_PKCE = "true"
+AUTH_STORAGE = AUTH_TOKENS
 KINDE_DEBUG = "true"
 KINDE_SCOPE = "openid profile email offline"
