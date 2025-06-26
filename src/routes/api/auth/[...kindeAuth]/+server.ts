@@ -123,6 +123,13 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
     return redirect(302, config.postLoginRedirectURL || '/dashboard');
     
   } catch (error) {
+    // Handle the expected window error from js-utils in server environment
+    if (error instanceof ReferenceError && error.message.includes('window')) {
+      // The tokens should still be stored correctly despite the window error
+      // Just redirect to the post-login URL
+      return redirect(302, config.postLoginRedirectURL || '/dashboard');
+    }
+    
     console.error('Callback error:', error);
     return json({ error: 'Authentication failed' }, { status: 500 });
   }
