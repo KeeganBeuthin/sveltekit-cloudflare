@@ -25,7 +25,9 @@ export { MemoryStorage } from "./stores/memory.js";
 export { ChromeStore } from "./stores/chromeStore.js";
 export { ExpoSecureStore } from "./stores/expoSecureStore.js";
 export { LocalStorage } from "./stores/localStorage.ts";
-export { KvStorage } from "./stores/kvStorage.ts"; // Fixed casing and extension
+export { KvStorage } from "./stores/kvStorage.ts";
+export { CookieStorage, createGenericCookieAdapter } from "./stores/cookieStorage.ts";
+export type { CookieAdapter, CookieOptions } from "./stores/cookieStorage.ts";
 
 export { StorageKeys } from "./types.ts";
 export type { SessionManager } from "./types.ts";

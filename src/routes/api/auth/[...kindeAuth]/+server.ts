@@ -9,8 +9,6 @@ import {
   type LoginOptions
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
-import { getActiveStorage, StorageKeys, getInsecureStorage } from '@kinde/js-utils';
-import { KINDE_ISSUER_URL, KINDE_CLIENT_ID, KINDE_REDIRECT_URL, KINDE_POST_LOGIN_REDIRECT_URL, KINDE_POST_LOGOUT_REDIRECT_URL, KINDE_DEBUG } from '$env/static/private';
 
 // Configure js-utils framework settings
 frameworkSettings.framework = 'sveltekit';
@@ -26,7 +24,6 @@ function getConfig(event: RequestEvent) {
     clientId: env?.KINDE_CLIENT_ID,
     redirectURL: env?.KINDE_REDIRECT_URL,
     postLoginRedirectURL: env?.KINDE_POST_LOGIN_REDIRECT_URL,
-    debug: env?.KINDE_DEBUG === 'true'
   };
 }
 
@@ -73,16 +70,11 @@ async function handleLogin(event: RequestEvent, config: ReturnType<typeof getCon
     ...(orgCode && { orgCode })
   };
   
-  // Let js-utils handle everything - it will use our configured storage
   const authResult = await generateAuthUrl(
     config.issuerUrl,
     IssuerRouteTypes.login,
     loginOptions
   );
-  
-  if (config.debug) {
-    console.log('js-utils generated auth URL, redirecting to Kinde');
-  }
   
   return redirect(302, authResult.url.toString());
 }
@@ -98,7 +90,6 @@ async function handleRegister(event: RequestEvent, config: ReturnType<typeof get
     ...(orgCode && { orgCode })
   };
   
-  // Let js-utils handle everything - it will use our configured storage
   const authResult = await generateAuthUrl(
     config.issuerUrl,
     IssuerRouteTypes.register,
@@ -116,12 +107,7 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
     return json({ error: `OAuth error: ${error}` }, { status: 400 });
   }
 
-  if (config.debug) {
-    console.log('Processing callback with js-utils...');
-  }
-
   try {
-    // Try the normal flow first
     const tokenResult = await exchangeAuthCode({
       urlParams: url.searchParams,
       domain: config.issuerUrl,
@@ -129,78 +115,15 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
       redirectURL: config.redirectURL
     });
     
-    // This shouldn't happen since we expect a window error
     if (!tokenResult.success) {
-      console.error('js-utils token exchange failed:', tokenResult.error);
+      console.error('Token exchange failed:', tokenResult.error);
       return json({ error: tokenResult.error }, { status: 500 });
     }
     
-    if (config.debug) {
-      console.log('js-utils authentication completed successfully via normal flow');
-    }
-    
-    return new Response(null, {
-      status: 302,
-      headers: {
-        'Location': config.postLoginRedirectURL || '/dashboard',
-        'Cache-Control': 'no-store'
-      }
-    });
+    return redirect(302, config.postLoginRedirectURL || '/dashboard');
     
   } catch (error) {
-    // Handle window error in server environment
-    if (error instanceof ReferenceError && error.message.includes('window')) {
-      if (config.debug) {
-        console.log('Caught window error - tokens were likely stored before this error');
-        console.log('Waiting 2 seconds for token storage to complete...');
-      }
-      
-      // Wait for token storage to complete
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Check if tokens were stored
-      const storage = getActiveStorage();
-      if (storage) {
-        const accessToken = await storage.getSessionItem(StorageKeys.accessToken);
-        const idToken = await storage.getSessionItem(StorageKeys.idToken);
-        
-        if (config.debug) {
-          console.log('Post-window-error token check:');
-          console.log('- Access Token:', accessToken ? 'present' : 'missing');
-          console.log('- ID Token:', idToken ? 'present' : 'missing');
-        }
-        
-        if (accessToken && idToken) {
-          if (config.debug) {
-            console.log('Tokens successfully stored despite window error');
-          }
-          
-          // Clean up OAuth temp data
-          const insecureStorage = getInsecureStorage();
-          if (insecureStorage) {
-            await insecureStorage.removeItems(
-              StorageKeys.state, 
-              StorageKeys.nonce, 
-              StorageKeys.codeVerifier
-            );
-          }
-          
-          return new Response(null, {
-            status: 302,
-            headers: {
-              'Location': config.postLoginRedirectURL || '/dashboard',
-              'Cache-Control': 'no-store'
-            }
-          });
-        } else {
-          console.error('Tokens were not stored properly');
-          return json({ error: 'Token storage failed' }, { status: 500 });
-        }
-      }
-    }
-    
-    // Re-throw non-window errors
-    console.error('Unexpected callback error:', error);
-    throw error;
+    console.error('Callback error:', error);
+    return json({ error: 'Authentication failed' }, { status: 500 });
   }
 }
