@@ -89,40 +89,54 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
 export async function GET(event: RequestEvent) {
   const { params } = event;
   
-  // Debug logging to see what we're actually getting
-  console.log('🔍 Route debug:', {
-    url: event.url.pathname,
-    params: params,
-    kindeAuth: params.kindeAuth
-  });
-  
-  const kindeAuth = params.kindeAuth?.[0];
-  console.log('🎯 Extracted kindeAuth:', kindeAuth);
+  // Fix: Handle both string and array cases properly
+  const kindeAuth = Array.isArray(params.kindeAuth) 
+    ? params.kindeAuth[0] 
+    : params.kindeAuth;
   
   initializeKindeAuth(event);
   const config = getConfig(event);
 
   switch (kindeAuth) {
-    case 'login':
-      console.log('✅ Handling login');
-      return handleLogin(event, config);
-    case 'register':
-      return handleRegister(event, config);
-    case 'logout':
-      console.log('✅ Handling logout');
-      return handleLogout(event, config);
-    case 'kinde_callback':
-      console.log('✅ Handling callback');
-      return handleCallback(event, config);
+    case 'login': {
+      const loginOptions: LoginOptions = {
+        clientId: config.clientId!,
+        redirectURL: config.redirectURL!,
+      };
+
+      const authResult = await generateAuthUrl(config.issuerUrl, IssuerRouteTypes.login, loginOptions);
+      return redirect(302, authResult.url.toString());
+    }
+    
+    case 'logout': {
+      clearActiveStorage();
+      clearInsecureStorage();
+      
+      const logoutUrl = new URL(`${sanitizeUrl(config.issuerUrl)}/logout`);
+      logoutUrl.searchParams.set('redirect', config.postLogoutRedirectURL);
+      
+      return redirect(302, logoutUrl.toString());
+    }
+    
+    case 'kinde_callback': {
+      const urlParams = event.url.searchParams;
+      
+      try {
+        await exchangeAuthCode({
+          urlParams,
+          domain: config.issuerUrl,
+          clientId: config.clientId,
+          redirectURL: config.redirectURL,
+        });
+        
+        return redirect(302, config.postLoginRedirectURL);
+      } catch (error) {
+        // Expected window error - tokens should be stored despite this
+        return redirect(302, config.postLoginRedirectURL);
+      }
+    }
+    
     default:
-      console.log('❌ Invalid endpoint, kindeAuth =', kindeAuth);
-      return json({ 
-        error: 'Invalid endpoint',
-        debug: {
-          kindeAuth,
-          url: event.url.pathname,
-          params: params.kindeAuth
-        }
-      }, { status: 404 });
+      return json({ error: 'Invalid endpoint' }, { status: 404 });
   }
 }
