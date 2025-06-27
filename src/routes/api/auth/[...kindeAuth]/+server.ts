@@ -7,10 +7,10 @@ import {
   IssuerRouteTypes,
   type LoginOptions,
   getActiveStorage,
+  getInsecureStorage,
   StorageKeys,
   clearActiveStorage,
-  clearInsecureStorage,
-  sanitizeUrl
+  clearInsecureStorage
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
 
@@ -32,46 +32,40 @@ function getConfig(event: RequestEvent) {
   };
 }
 
-function createAuthOptions(event: RequestEvent, config: ReturnType<typeof getConfig>): LoginOptions & { clientId: string; redirectURL: string } {
-  const url = new URL(event.request.url);
-  
-  return {
-    clientId: config.clientId,
-    redirectURL: config.redirectURL,
-    ...(url.searchParams.get('org_code') && { orgCode: url.searchParams.get('org_code')! })
-  };
-}
-
 async function handleLogin(event: RequestEvent, config: ReturnType<typeof getConfig>) {
   const loginOptions: LoginOptions = {
-    clientId: config.clientId!,
-    redirectURL: config.redirectURL!,
+    clientId: config.clientId,
+    redirectURL: config.redirectURL,
   };
 
   const authResult = await generateAuthUrl(config.issuerUrl, IssuerRouteTypes.login, loginOptions);
   return redirect(302, authResult.url.toString());
 }
 
-async function handleRegister(event: RequestEvent, config: ReturnType<typeof getConfig>) {
-  const authOptions = createAuthOptions(event, config);
-  const authResult = await generateAuthUrl(config.issuerUrl, IssuerRouteTypes.register, authOptions);
-  return redirect(302, authResult.url.toString());
-}
-
 async function handleLogout(event: RequestEvent, config: ReturnType<typeof getConfig>) {
-  clearActiveStorage();
-  clearInsecureStorage();
-  
-  const logoutUrl = new URL(`${sanitizeUrl(config.issuerUrl)}/logout`);
-  logoutUrl.searchParams.set('redirect', config.postLogoutRedirectURL);
-  
-  return redirect(302, logoutUrl.toString());
+  try {
+    clearActiveStorage();
+    clearInsecureStorage();
+    
+    const logoutUrl = new URL(`${config.issuerUrl}/logout`);
+    logoutUrl.searchParams.set('redirect', config.postLogoutRedirectURL);
+    
+    return redirect(302, logoutUrl.toString());
+  } catch {
+    const logoutUrl = new URL(`${config.issuerUrl}/logout`);
+    logoutUrl.searchParams.set('redirect', config.postLogoutRedirectURL);
+    return redirect(302, logoutUrl.toString());
+  }
 }
 
 async function handleCallback(event: RequestEvent, config: ReturnType<typeof getConfig>) {
   const urlParams = event.url.searchParams;
   
   try {
+    console.log('🔄 Starting token exchange process...');
+    console.log('✅ Storage initialized correctly');
+    console.log('🔄 Calling js-utils exchangeAuthCode...');
+    
     await exchangeAuthCode({
       urlParams,
       domain: config.issuerUrl,
@@ -79,17 +73,60 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
       redirectURL: config.redirectURL,
     });
     
+    console.log('✅ exchangeAuthCode completed successfully');
     return redirect(302, config.postLoginRedirectURL);
   } catch (error) {
-    // Expected window error - tokens should be stored despite this
-    return redirect(302, config.postLoginRedirectURL);
+    console.log('⚠️ exchangeAuthCode threw error:', error.message);
+    console.log('✅ Caught expected window error - checking if tokens were stored...');
+    
+    // Wait for KV consistency and verify tokens were stored
+    const storage = getActiveStorage();
+    
+    const verifyTokens = async (attempt = 1): Promise<boolean> => {
+      const delay = Math.min(500 * attempt, 2000); // Progressive delay up to 2s
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      const [accessToken, idToken, refreshToken] = await Promise.all([
+        storage?.getSessionItem(StorageKeys.accessToken),
+        storage?.getSessionItem(StorageKeys.idToken),
+        storage?.getSessionItem(StorageKeys.refreshToken)
+      ]);
+      
+      const tokenCount = [accessToken, idToken, refreshToken].filter(Boolean).length;
+      console.log(`🔍 Token verification (attempt ${attempt}): ${tokenCount}/3 tokens found`);
+      
+      // We need at least 2 of the 3 tokens (access + id are most critical)
+      if (accessToken && idToken) {
+        console.log('✅ Essential tokens verified - authentication successful');
+        return true;
+      }
+      
+      if (attempt < 3) {
+        console.log(`⏱️ Retrying token verification in ${Math.min(500 * (attempt + 1), 2000)}ms...`);
+        return verifyTokens(attempt + 1);
+      }
+      
+      console.log('❌ Tokens were not stored properly despite window error');
+      return false;
+    };
+    
+    const tokensStored = await verifyTokens();
+    
+    if (tokensStored) {
+      return redirect(302, config.postLoginRedirectURL);
+    } else {
+      console.error('🚫 Authentication failed - tokens not stored');
+      return json({ 
+        error: 'Authentication failed',
+        details: 'Tokens were not stored properly'
+      }, { status: 500 });
+    }
   }
 }
 
 export async function GET(event: RequestEvent) {
   const { params } = event;
   
-  // Fix: Handle both string and array cases properly
   const kindeAuth = Array.isArray(params.kindeAuth) 
     ? params.kindeAuth[0] 
     : params.kindeAuth;
@@ -98,44 +135,12 @@ export async function GET(event: RequestEvent) {
   const config = getConfig(event);
 
   switch (kindeAuth) {
-    case 'login': {
-      const loginOptions: LoginOptions = {
-        clientId: config.clientId!,
-        redirectURL: config.redirectURL!,
-      };
-
-      const authResult = await generateAuthUrl(config.issuerUrl, IssuerRouteTypes.login, loginOptions);
-      return redirect(302, authResult.url.toString());
-    }
-    
-    case 'logout': {
-      clearActiveStorage();
-      clearInsecureStorage();
-      
-      const logoutUrl = new URL(`${sanitizeUrl(config.issuerUrl)}/logout`);
-      logoutUrl.searchParams.set('redirect', config.postLogoutRedirectURL);
-      
-      return redirect(302, logoutUrl.toString());
-    }
-    
-    case 'kinde_callback': {
-      const urlParams = event.url.searchParams;
-      
-      try {
-        await exchangeAuthCode({
-          urlParams,
-          domain: config.issuerUrl,
-          clientId: config.clientId,
-          redirectURL: config.redirectURL,
-        });
-        
-        return redirect(302, config.postLoginRedirectURL);
-      } catch (error) {
-        // Expected window error - tokens should be stored despite this
-        return redirect(302, config.postLoginRedirectURL);
-      }
-    }
-    
+    case 'login':
+      return handleLogin(event, config);
+    case 'logout':
+      return handleLogout(event, config);
+    case 'kinde_callback':
+      return handleCallback(event, config);
     default:
       return json({ error: 'Invalid endpoint' }, { status: 404 });
   }
