@@ -8,7 +8,9 @@ import {
   type LoginOptions,
   getActiveStorage,
   getInsecureStorage,
-  StorageKeys
+  StorageKeys,
+  clearActiveStorage,
+  clearInsecureStorage
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
 
@@ -26,37 +28,59 @@ function getConfig(event: RequestEvent) {
     clientId: env?.KINDE_CLIENT_ID,
     redirectURL: env?.KINDE_REDIRECT_URL,
     postLoginRedirectURL: env?.KINDE_POST_LOGIN_REDIRECT_URL,
+    postLogoutRedirectURL: env?.KINDE_POST_LOGOUT_REDIRECT_URL,
   };
 }
 
+function getLogoutUrl(config: ReturnType<typeof getConfig>): string {
+  const logoutUrl = new URL(`${config.issuerUrl}/logout`);
+  logoutUrl.searchParams.set('redirect', config.postLogoutRedirectURL);
+  return logoutUrl.toString();
+}
+
+async function handleLogout(event: RequestEvent, config: ReturnType<typeof getConfig>) {
+  console.log('🔄 Starting logout process...');
+  
+  try {
+    // Clear all storage
+    clearActiveStorage();
+    clearInsecureStorage();
+    console.log('✅ Storage cleared successfully');
+    
+    // Generate logout URL
+    const logoutUrl = getLogoutUrl(config);
+    console.log('🔄 Redirecting to Kinde logout:', logoutUrl);
+    
+    return redirect(302, logoutUrl);
+  } catch (error) {
+    console.error('❌ Logout error:', error);
+    // Even if there's an error, redirect to logout
+    const logoutUrl = getLogoutUrl(config);
+    return redirect(302, logoutUrl);
+  }
+}
+
 export async function GET(event: RequestEvent) {
+  const { params } = event;
+  const action = params.kindeAuth;
+  
   if (!initializeKindeAuth(event)) {
-    return json({ error: 'Storage initialization failed' }, { status: 500 });
+    return json({ error: 'Failed to initialize authentication' }, { status: 500 });
   }
   
   const config = getConfig(event);
   
-  if (!config.issuerUrl || !config.clientId || !config.redirectURL) {
-    return json({ error: 'Missing required Kinde configuration' }, { status: 500 });
-  }
-  
-  const url = new URL(event.request.url);
-  const path = url.pathname.split('/').pop() || '';
-  
-  try {
-    switch (path) {
-      case 'login':
-        return handleLogin(event, config);
-      case 'register':
-        return handleRegister(event, config);
-      case 'kinde_callback':
-        return handleCallback(event, config);
-      default:
-        return json({ error: 'Unknown auth endpoint' }, { status: 404 });
-    }
-  } catch (error) {
-    console.error('Auth handler error:', error);
-    return json({ error: 'Authentication error' }, { status: 500 });
+  switch (action) {
+    case 'login':
+      return handleLogin(event, config);
+    case 'register':
+      return handleRegister(event, config);
+    case 'logout':
+      return handleLogout(event, config);
+    case 'kinde_callback':
+      return handleCallback(event, config);
+    default:
+      return json({ error: 'Invalid action' }, { status: 400 });
   }
 }
 
