@@ -106,38 +106,30 @@ function createSvelteKitCookieAdapter(event: RequestEvent): CookieAdapter {
 export function initializeKindeAuth(event: RequestEvent): boolean {
   try {
     const platform = event.platform as any;
-    
-    console.log('🔍 Platform debug:', {
-      platformExists: !!platform,
-      envExists: !!platform?.env,
-      envKeys: platform?.env ? Object.keys(platform.env) : 'no env',
-      authStorageType: platform?.env?.AUTH_STORAGE ? typeof platform.env.AUTH_STORAGE : 'missing'
-    });
-    
     const AUTH_STORAGE = platform?.env?.AUTH_STORAGE;
     
     if (!AUTH_STORAGE) {
-      console.error('❌ KV storage not available for token storage');
-      console.error('Available env vars:', platform?.env ? Object.keys(platform.env) : 'no platform.env');
+      console.error('❌ KV storage not available');
       return false;
     }
     
-    console.log('✅ AUTH_STORAGE found:', typeof AUTH_STORAGE);
+    // KvStorage now handles eventual consistency automatically
+    const tokenStorage = new KvStorage(AUTH_STORAGE, { 
+      defaultTtl: 3600,
+      enableConsistencyChecks: true,  // Enable for reliable auth flows
+      consistencyRetries: 3,
+      consistencyDelayMs: 250
+    });
     
-    // Use debug wrapper to trace KV operations
-    const tokenStorage = new DebugKvStorage(AUTH_STORAGE, { defaultTtl: 3600 });
-    
-    // Cookie Storage: Temporary OAuth data (immediate consistency required)
     const cookieAdapter = createSvelteKitCookieAdapter(event);
     const tempStorage = new CookieStorage(cookieAdapter);
     
-    setActiveStorage(tokenStorage);     // Long-term tokens
-    setInsecureStorage(tempStorage);    // Temporary OAuth data
+    setActiveStorage(tokenStorage);
+    setInsecureStorage(tempStorage);
     
-    console.log('✅ Hybrid storage initialized successfully');
     return true;
   } catch (error) {
-    console.error('❌ Error initializing hybrid storage:', error);
+    console.error('❌ Error initializing auth:', error);
     return false;
   }
 }

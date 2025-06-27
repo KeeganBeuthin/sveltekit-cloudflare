@@ -126,28 +126,10 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   console.log('🔄 Starting token exchange process...');
   
   if (!initializeKindeAuth(event)) {
-    console.log('❌ Storage initialization failed');
     return json({ error: 'Storage initialization failed' }, { status: 500 });
-  }
-  console.log('✅ Storage initialized correctly');
-
-  // Clear any existing tokens first to avoid namespace pollution
-  const activeStorage = getActiveStorage();
-  if (activeStorage) {
-    console.log('🧹 Clearing existing tokens to prevent conflicts...');
-    try {
-      await Promise.all([
-        activeStorage.removeSessionItem?.(StorageKeys.accessToken),
-        activeStorage.removeSessionItem?.(StorageKeys.idToken),
-        activeStorage.removeSessionItem?.(StorageKeys.refreshToken)
-      ]);
-    } catch (error) {
-      console.log('⚠️ Token cleanup error (non-critical):', error);
-    }
   }
 
   try {
-    console.log('🔄 Calling js-utils exchangeAuthCode...');
     await exchangeAuthCode({
       urlParams: new URLSearchParams(new URL(event.request.url).search),
       domain: config.issuerUrl,
@@ -156,52 +138,22 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
     });
   } catch (error: any) {
     console.log('⚠️ exchangeAuthCode threw error:', error.message);
-    console.log('✅ Caught expected window error - waiting for KV consistency...');
-    
-    // Increased delay for KV eventual consistency
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // KvStorage now handles consistency internally, so just a brief wait
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  // Retry logic for token verification
-  let accessToken, idToken, refreshToken;
-  let retryCount = 0;
-  const maxRetries = 3;
+  // Simple verification - KvStorage has already handled retries internally
+  const activeStorage = getActiveStorage();
+  const [accessToken, idToken] = await Promise.all([
+    activeStorage?.getSessionItem(StorageKeys.accessToken),
+    activeStorage?.getSessionItem(StorageKeys.idToken)
+  ]);
 
-  while (retryCount < maxRetries) {
-    [accessToken, idToken, refreshToken] = await Promise.all([
-      activeStorage?.getSessionItem(StorageKeys.accessToken),
-      activeStorage?.getSessionItem(StorageKeys.idToken), 
-      activeStorage?.getSessionItem(StorageKeys.refreshToken)
-    ]);
-
-    console.log(`🔍 Token verification attempt ${retryCount + 1}:`);
-    console.log('- Access Token:', accessToken ? 'present' : 'MISSING');
-    console.log('- ID Token:', idToken ? 'present' : 'MISSING'); 
-    console.log('- Refresh Token:', refreshToken ? 'present' : 'MISSING');
-
-    if (accessToken && idToken) {
-      console.log('✅ Essential tokens verified - cleaning up OAuth temp data');
-      
-      // Clean up temporary OAuth data
-      const insecureStorage = getInsecureStorage();
-      await insecureStorage?.removeItems(
-        StorageKeys.state,
-        StorageKeys.nonce, 
-        StorageKeys.codeVerifier
-      );
-      
-      console.log('✅ OAuth cleanup complete - redirecting to dashboard');
-      return redirect(302, config.postLoginRedirectURL);
-    }
-
-    if (retryCount < maxRetries - 1) {
-      console.log(`⏳ Tokens not ready, waiting ${250 * (retryCount + 1)}ms before retry...`);
-      await new Promise(resolve => setTimeout(resolve, 250 * (retryCount + 1)));
-    }
-    
-    retryCount++;
+  if (accessToken && idToken) {
+    console.log('✅ Authentication successful');
+    return redirect(302, config.postLoginRedirectURL);
   }
 
-  console.log('❌ Essential tokens missing after all retries - token exchange failed');
-  return json({ error: 'Authentication failed - tokens not stored' }, { status: 500 });
+  console.log('❌ Authentication failed');
+  return json({ error: 'Authentication failed' }, { status: 500 });
 }
