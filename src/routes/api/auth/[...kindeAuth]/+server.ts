@@ -123,82 +123,58 @@ async function handleRegister(event: RequestEvent, config: ReturnType<typeof get
 }
 
 async function handleCallback(event: RequestEvent, config: ReturnType<typeof getConfig>) {
-  const url = new URL(event.request.url);
-  const error = url.searchParams.get('error');
-  
-  if (error) {
-    return json({ error: `OAuth error: ${error}` }, { status: 400 });
-  }
-
   console.log('🔄 Starting token exchange process...');
   
-  // Check if storage is properly initialized
-  const activeStorage = getActiveStorage();
-  const insecureStorage = getInsecureStorage();
-  
-  if (!activeStorage || !insecureStorage) {
-    console.error('❌ Storage not properly initialized');
-    return json({ error: 'Storage not initialized' }, { status: 500 });
+  if (!initializeKindeAuth(event)) {
+    console.log('❌ Storage initialization failed');
+    return json({ error: 'Storage initialization failed' }, { status: 500 });
   }
-
   console.log('✅ Storage initialized correctly');
 
-  // Use js-utils exchangeAuthCode - tokens are stored before window error occurs
   try {
     console.log('🔄 Calling js-utils exchangeAuthCode...');
-    
-    const result = await exchangeAuthCode({
-      urlParams: url.searchParams,
+    await exchangeAuthCode({
+      urlParams: new URLSearchParams(new URL(event.request.url).search),
       domain: config.issuerUrl,
       clientId: config.clientId,
       redirectURL: config.redirectURL
     });
+  } catch (error: any) {
+    console.log('⚠️ exchangeAuthCode threw error:', error.message);
+    console.log('✅ Caught expected window error - waiting for KV consistency...');
     
-    console.log('✅ exchangeAuthCode completed successfully:', result);
-    
-  } catch (error) {
-    console.log('⚠️ exchangeAuthCode threw error:', error);
-    
-    // Expected window error in server environment - tokens should be stored
-    if (error instanceof ReferenceError && error.message.includes('window')) {
-      console.log('✅ Caught expected window error - checking if tokens were stored...');
-      
-      // Give storage a moment to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Verify tokens were actually stored
-      const accessToken = await activeStorage.getSessionItem(StorageKeys.accessToken);
-      const idToken = await activeStorage.getSessionItem(StorageKeys.idToken);
-      const refreshToken = await activeStorage.getSessionItem(StorageKeys.refreshToken);
-      
-      console.log('🔍 Token verification:');
-      console.log('- Access Token:', accessToken ? 'present' : 'MISSING');
-      console.log('- ID Token:', idToken ? 'present' : 'MISSING');
-      console.log('- Refresh Token:', refreshToken ? 'present' : 'MISSING');
-      
-      if (!accessToken || !idToken) {
-        console.error('❌ Tokens were not stored properly despite window error');
-        return json({ error: 'Token storage failed' }, { status: 500 });
-      }
-      
-      console.log('✅ Tokens verified in storage - cleaning up OAuth temp data');
-      
-      // Clean up OAuth temp data
-      await insecureStorage.removeItems(
-        StorageKeys.state, 
-        StorageKeys.nonce, 
-        StorageKeys.codeVerifier
-      );
-      
-      console.log('✅ OAuth cleanup complete - redirecting to dashboard');
-      return redirect(302, config.postLoginRedirectURL || '/dashboard');
-    }
-    
-    console.error('❌ Unexpected callback error:', error);
-    return json({ error: 'Authentication failed' }, { status: 500 });
+    // Wait for KV operations to complete (eventual consistency)
+    await new Promise(resolve => setTimeout(resolve, 250));
   }
-  
-  // This should never happen in server environment, but handle it anyway
-  console.log('✅ exchangeAuthCode completed without window error - redirecting');
-  return redirect(302, config.postLoginRedirectURL || '/dashboard');
+
+  // Verify tokens were stored
+  const activeStorage = getActiveStorage();
+  const [accessToken, idToken, refreshToken] = await Promise.all([
+    activeStorage?.getSessionItem(StorageKeys.accessToken),
+    activeStorage?.getSessionItem(StorageKeys.idToken), 
+    activeStorage?.getSessionItem(StorageKeys.refreshToken)
+  ]);
+
+  console.log('🔍 Token verification (after delay):');
+  console.log('- Access Token:', accessToken ? 'present' : 'MISSING');
+  console.log('- ID Token:', idToken ? 'present' : 'MISSING'); 
+  console.log('- Refresh Token:', refreshToken ? 'present' : 'MISSING');
+
+  if (accessToken && idToken) {
+    console.log('✅ Essential tokens verified - cleaning up OAuth temp data');
+    
+    // Clean up temporary OAuth data
+    const insecureStorage = getInsecureStorage();
+    await insecureStorage?.removeItems(
+      StorageKeys.state,
+      StorageKeys.nonce, 
+      StorageKeys.codeVerifier
+    );
+    
+    console.log('✅ OAuth cleanup complete - redirecting to dashboard');
+    return redirect(302, config.postLoginRedirectURL);
+  }
+
+  console.log('❌ Essential tokens missing after delay - token exchange failed');
+  return json({ error: 'Authentication failed' }, { status: 500 });
 }
