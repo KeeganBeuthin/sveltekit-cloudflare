@@ -131,6 +131,21 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
   }
   console.log('✅ Storage initialized correctly');
 
+  // Clear any existing tokens first to avoid namespace pollution
+  const activeStorage = getActiveStorage();
+  if (activeStorage) {
+    console.log('🧹 Clearing existing tokens to prevent conflicts...');
+    try {
+      await Promise.all([
+        activeStorage.removeSessionItem?.(StorageKeys.accessToken),
+        activeStorage.removeSessionItem?.(StorageKeys.idToken),
+        activeStorage.removeSessionItem?.(StorageKeys.refreshToken)
+      ]);
+    } catch (error) {
+      console.log('⚠️ Token cleanup error (non-critical):', error);
+    }
+  }
+
   try {
     console.log('🔄 Calling js-utils exchangeAuthCode...');
     await exchangeAuthCode({
@@ -143,38 +158,50 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
     console.log('⚠️ exchangeAuthCode threw error:', error.message);
     console.log('✅ Caught expected window error - waiting for KV consistency...');
     
-    // Wait for KV operations to complete (eventual consistency)
-    await new Promise(resolve => setTimeout(resolve, 250));
+    // Increased delay for KV eventual consistency
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
-  // Verify tokens were stored
-  const activeStorage = getActiveStorage();
-  const [accessToken, idToken, refreshToken] = await Promise.all([
-    activeStorage?.getSessionItem(StorageKeys.accessToken),
-    activeStorage?.getSessionItem(StorageKeys.idToken), 
-    activeStorage?.getSessionItem(StorageKeys.refreshToken)
-  ]);
+  // Retry logic for token verification
+  let accessToken, idToken, refreshToken;
+  let retryCount = 0;
+  const maxRetries = 3;
 
-  console.log('🔍 Token verification (after delay):');
-  console.log('- Access Token:', accessToken ? 'present' : 'MISSING');
-  console.log('- ID Token:', idToken ? 'present' : 'MISSING'); 
-  console.log('- Refresh Token:', refreshToken ? 'present' : 'MISSING');
+  while (retryCount < maxRetries) {
+    [accessToken, idToken, refreshToken] = await Promise.all([
+      activeStorage?.getSessionItem(StorageKeys.accessToken),
+      activeStorage?.getSessionItem(StorageKeys.idToken), 
+      activeStorage?.getSessionItem(StorageKeys.refreshToken)
+    ]);
 
-  if (accessToken && idToken) {
-    console.log('✅ Essential tokens verified - cleaning up OAuth temp data');
+    console.log(`🔍 Token verification attempt ${retryCount + 1}:`);
+    console.log('- Access Token:', accessToken ? 'present' : 'MISSING');
+    console.log('- ID Token:', idToken ? 'present' : 'MISSING'); 
+    console.log('- Refresh Token:', refreshToken ? 'present' : 'MISSING');
+
+    if (accessToken && idToken) {
+      console.log('✅ Essential tokens verified - cleaning up OAuth temp data');
+      
+      // Clean up temporary OAuth data
+      const insecureStorage = getInsecureStorage();
+      await insecureStorage?.removeItems(
+        StorageKeys.state,
+        StorageKeys.nonce, 
+        StorageKeys.codeVerifier
+      );
+      
+      console.log('✅ OAuth cleanup complete - redirecting to dashboard');
+      return redirect(302, config.postLoginRedirectURL);
+    }
+
+    if (retryCount < maxRetries - 1) {
+      console.log(`⏳ Tokens not ready, waiting ${250 * (retryCount + 1)}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, 250 * (retryCount + 1)));
+    }
     
-    // Clean up temporary OAuth data
-    const insecureStorage = getInsecureStorage();
-    await insecureStorage?.removeItems(
-      StorageKeys.state,
-      StorageKeys.nonce, 
-      StorageKeys.codeVerifier
-    );
-    
-    console.log('✅ OAuth cleanup complete - redirecting to dashboard');
-    return redirect(302, config.postLoginRedirectURL);
+    retryCount++;
   }
 
-  console.log('❌ Essential tokens missing after delay - token exchange failed');
-  return json({ error: 'Authentication failed' }, { status: 500 });
+  console.log('❌ Essential tokens missing after all retries - token exchange failed');
+  return json({ error: 'Authentication failed - tokens not stored' }, { status: 500 });
 }
