@@ -44,9 +44,11 @@ class DebugKvStorage extends KvStorage {
   async setItems(items: Record<string, unknown>): Promise<void> {
     console.log('🔧 KvStorage.setItems called with:', Object.keys(items));
     try {
-      const result = await super.setItems(items);
+      // Force sequential completion to ensure all items are stored
+      for (const [key, value] of Object.entries(items)) {
+        await this.setSessionItem(key, value);
+      }
       console.log('✅ KvStorage.setItems completed successfully');
-      return result;
     } catch (error) {
       console.error('❌ KvStorage.setItems failed:', error);
       throw error;
