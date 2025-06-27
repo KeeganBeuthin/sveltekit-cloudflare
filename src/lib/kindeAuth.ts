@@ -101,7 +101,9 @@ function createSvelteKitCookieAdapter(event: RequestEvent): CookieAdapter {
 }
 
 /**
- * Initialize hybrid storage strategy using js-utils stores
+ * Initialize hybrid storage strategy for Kinde authentication
+ * - KV Storage: Long-term tokens with built-in eventual consistency handling
+ * - Cookie Storage: Temporary OAuth data requiring immediate consistency
  */
 export function initializeKindeAuth(event: RequestEvent): boolean {
   try {
@@ -109,18 +111,18 @@ export function initializeKindeAuth(event: RequestEvent): boolean {
     const AUTH_STORAGE = platform?.env?.AUTH_STORAGE;
     
     if (!AUTH_STORAGE) {
-      console.error('❌ KV storage not available');
       return false;
     }
     
-    // KvStorage now handles eventual consistency automatically
+    // KV Storage for tokens with automatic consistency handling
     const tokenStorage = new KvStorage(AUTH_STORAGE, { 
       defaultTtl: 3600,
-      enableConsistencyChecks: true,  // Enable for reliable auth flows
+      enableConsistencyChecks: true,
       consistencyRetries: 3,
       consistencyDelayMs: 250
     });
     
+    // Cookie Storage for temporary OAuth data
     const cookieAdapter = createSvelteKitCookieAdapter(event);
     const tempStorage = new CookieStorage(cookieAdapter);
     
@@ -128,13 +130,12 @@ export function initializeKindeAuth(event: RequestEvent): boolean {
     setInsecureStorage(tempStorage);
     
     return true;
-  } catch (error) {
-    console.error('❌ Error initializing auth:', error);
+  } catch {
     return false;
   }
 }
 
-// Re-export commonly used js-utils functions for convenience
+// Re-export js-utils functionality for convenience
 export { 
   StorageKeys,
   getUserProfile,
