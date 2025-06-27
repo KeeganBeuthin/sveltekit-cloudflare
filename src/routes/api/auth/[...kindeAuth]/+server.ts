@@ -14,6 +14,7 @@ import {
 } from '@kinde/js-utils';
 import { initializeKindeAuth } from '$lib/kindeAuth';
 
+// Configure js-utils framework settings
 frameworkSettings.framework = 'sveltekit';
 frameworkSettings.frameworkVersion = '2.16.0';
 frameworkSettings.sdkVersion = '1.0.0';
@@ -87,21 +88,41 @@ async function handleCallback(event: RequestEvent, config: ReturnType<typeof get
 
 export async function GET(event: RequestEvent) {
   const { params } = event;
+  
+  // Debug logging to see what we're actually getting
+  console.log('🔍 Route debug:', {
+    url: event.url.pathname,
+    params: params,
+    kindeAuth: params.kindeAuth
+  });
+  
   const kindeAuth = params.kindeAuth?.[0];
+  console.log('🎯 Extracted kindeAuth:', kindeAuth);
   
   initializeKindeAuth(event);
   const config = getConfig(event);
 
   switch (kindeAuth) {
     case 'login':
+      console.log('✅ Handling login');
       return handleLogin(event, config);
     case 'register':
       return handleRegister(event, config);
     case 'logout':
+      console.log('✅ Handling logout');
       return handleLogout(event, config);
     case 'kinde_callback':
+      console.log('✅ Handling callback');
       return handleCallback(event, config);
     default:
-      return json({ error: 'Invalid endpoint' }, { status: 404 });
+      console.log('❌ Invalid endpoint, kindeAuth =', kindeAuth);
+      return json({ 
+        error: 'Invalid endpoint',
+        debug: {
+          kindeAuth,
+          url: event.url.pathname,
+          params: params.kindeAuth
+        }
+      }, { status: 404 });
   }
 }
