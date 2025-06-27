@@ -43,12 +43,41 @@ class DebugKvStorage extends KvStorage {
 
   async setItems(items: Record<string, unknown>): Promise<void> {
     console.log('🔧 KvStorage.setItems called with:', Object.keys(items));
-    try {
-      // Force sequential completion to ensure all items are stored
-      for (const [key, value] of Object.entries(items)) {
+    
+    // Store all items individually with proper error handling
+    const promises = Object.entries(items).map(async ([key, value]) => {
+      try {
         await this.setSessionItem(key, value);
+        return { key, success: true };
+      } catch (error) {
+        console.error(`❌ Failed to store ${key}:`, error);
+        return { key, success: false, error };
       }
-      console.log('✅ KvStorage.setItems completed successfully');
+    });
+
+    try {
+      // Wait for all storage operations to complete
+      const results = await Promise.allSettled(promises);
+      
+      const successes = results
+        .filter((r): r is PromiseFulfilledResult<{key: string, success: boolean}> => 
+          r.status === 'fulfilled' && r.value.success
+        )
+        .map(r => r.value.key);
+        
+      const failures = results
+        .filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success))
+        .map(r => r.status === 'fulfilled' ? r.value.key : 'unknown');
+
+      console.log('✅ KvStorage.setItems completed:', {
+        successful: successes,
+        failed: failures,
+        total: Object.keys(items).length
+      });
+
+      if (failures.length > 0) {
+        console.warn('⚠️ Some items failed to store:', failures);
+      }
     } catch (error) {
       console.error('❌ KvStorage.setItems failed:', error);
       throw error;
