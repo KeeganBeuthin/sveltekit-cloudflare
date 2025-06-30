@@ -45,16 +45,14 @@ async function handleLogout(event: RequestEvent, config: ReturnType<typeof getCo
   try {
     clearActiveStorage();
     clearInsecureStorage();
-    
-    const logoutUrl = new URL(`${config.issuerUrl}/logout`);
-    logoutUrl.searchParams.set('redirect', config.postLogoutRedirectURL);
-    
-    return redirect(302, logoutUrl.toString());
   } catch {
-    const logoutUrl = new URL(`${config.issuerUrl}/logout`);
-    logoutUrl.searchParams.set('redirect', config.postLogoutRedirectURL);
-    return redirect(302, logoutUrl.toString());
+    // Ignore cleanup errors - logout should proceed regardless
   }
+  
+  const logoutUrl = new URL(`${config.issuerUrl}/logout`);
+  logoutUrl.searchParams.set('redirect', config.postLogoutRedirectURL);
+  
+  return redirect(302, logoutUrl.toString());
 }
 
 async function handleCallback(event: RequestEvent, config: ReturnType<typeof getConfig>) {
